@@ -1,0 +1,305 @@
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE,
+    password VARCHAR(255),
+    role_type VARCHAR(50),
+    registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    address VARCHAR(255),
+    full_name VARCHAR(255)
+);
+
+CREATE TABLE reports (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    reason TEXT,
+    status VARCHAR(50),
+    report_type VARCHAR(50)
+);
+
+CREATE TABLE notifications (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    type VARCHAR(50),
+    content TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE business (
+    shop_id SERIAL PRIMARY KEY,
+    name VARCHAR(255),
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    address VARCHAR(255),
+    tel_no VARCHAR(50),
+    description TEXT,
+    business_hours TEXT,
+    latitude NUMERIC(9,6),
+    longitude NUMERIC(9,6),
+    category VARCHAR(100),
+    is_editors_choice BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE business_hours (
+    id SERIAL PRIMARY KEY,
+    business_id INTEGER NOT NULL REFERENCES business(shop_id) ON DELETE CASCADE,
+    open_hour TIME,
+    close_hour TIME,
+    day_of_week VARCHAR(20),
+    is_closed BOOLEAN DEFAULT FALSE,
+    created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE address (
+    id SERIAL PRIMARY KEY,
+    business_id INTEGER REFERENCES business(shop_id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    address VARCHAR(255),
+    city VARCHAR(100),
+    neighbourhood VARCHAR(100),
+    district VARCHAR(100),
+    country VARCHAR(100)
+);
+
+CREATE TABLE categories (
+    id SERIAL PRIMARY KEY,
+    type VARCHAR(100) UNIQUE,
+    business_id INTEGER REFERENCES business(shop_id) ON DELETE CASCADE
+);
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    business_id INTEGER NOT NULL REFERENCES business(shop_id) ON DELETE CASCADE,
+    name VARCHAR(255),
+    description TEXT,
+    product_prices DECIMAL, -- From original schema
+    categories VARCHAR(100),
+    available BOOLEAN DEFAULT TRUE,
+    -- Pricing Fields from Alter
+    original_price DECIMAL,
+    discounted_price DECIMAL,
+    discount_percent INT,
+    is_discounted BOOLEAN DEFAULT FALSE,
+    -- Booking Fields from Alter
+    bookable BOOLEAN DEFAULT FALSE,
+    duration_minutes INTEGER,
+    deposit_required BOOLEAN DEFAULT FALSE,
+    deposit_percent INTEGER DEFAULT 0
+);
+
+CREATE TABLE product_prices (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    price DECIMAL,
+    is_negotiable BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE staff (
+    id SERIAL PRIMARY KEY,
+    business_id INTEGER NOT NULL REFERENCES business(shop_id) ON DELETE CASCADE,
+    full_name VARCHAR(255) NOT NULL,
+    role VARCHAR(100),
+    photo_url VARCHAR(255),
+    rating NUMERIC(2,1) DEFAULT 0,
+    review_count INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE staff_services (
+    id SERIAL PRIMARY KEY,
+    staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_staff_product UNIQUE (staff_id, product_id)
+);
+
+CREATE TABLE staff_availability (
+    id SERIAL PRIMARY KEY,
+    staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+    day_of_week VARCHAR(20) NOT NULL,
+    start_time TIME,
+    end_time TIME,
+    is_closed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_staff_day UNIQUE (staff_id, day_of_week)
+);
+
+CREATE TABLE appointments (
+    id SERIAL PRIMARY KEY,
+    business_id INTEGER NOT NULL REFERENCES business(shop_id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    staff_id INTEGER REFERENCES staff(id) ON DELETE SET NULL,
+    appointment_date DATE NOT NULL,
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    listed_price DECIMAL(10,2),
+    agreed_price DECIMAL(10,2),
+    deposit_amount DECIMAL(10,2) DEFAULT 0,
+    status VARCHAR(30) DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'cancelled', 'completed', 'no_show', 'rescheduled')),
+    booking_type VARCHAR(20) DEFAULT 'direct' CHECK (booking_type IN ('direct', 'offer')),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE reviews (
+    review_id SERIAL PRIMARY KEY,
+    comments TEXT,
+    rank INTEGER,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    business_id INTEGER NOT NULL REFERENCES business(shop_id) ON DELETE CASCADE,
+    photos TEXT,
+    is_approved BOOLEAN DEFAULT FALSE,
+    time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_user_business_review UNIQUE (user_id, business_id)
+);
+
+CREATE TABLE review_responses (
+    id SERIAL PRIMARY KEY,
+    review_id INTEGER NOT NULL UNIQUE REFERENCES reviews(review_id) ON DELETE CASCADE,
+    business_id INTEGER NOT NULL REFERENCES business(shop_id) ON DELETE CASCADE,
+    response_text TEXT NOT NULL,
+    is_approved BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE chats (
+    id SERIAL PRIMARY KEY,
+    business_id INTEGER REFERENCES business(shop_id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    message TEXT, -- From original chats table
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_chat_pair UNIQUE (business_id, user_id)
+);
+
+CREATE TABLE messages (
+    id SERIAL PRIMARY KEY,
+    chat_id INTEGER REFERENCES chats(id) ON DELETE CASCADE,
+    content TEXT,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    sender_type VARCHAR(20),
+    sender_ref_id INTEGER,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE offers (
+    id SERIAL PRIMARY KEY,
+    business_id INTEGER REFERENCES business(shop_id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    chat_id INTEGER REFERENCES chats(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
+    offered_price DECIMAL,
+    counter_price DECIMAL,
+    status VARCHAR(50) DEFAULT 'pending',
+    note TEXT,
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE photos (
+    photo_id SERIAL PRIMARY KEY,
+    image_url VARCHAR(255),
+    review_id INTEGER REFERENCES reviews(review_id) ON DELETE CASCADE,
+    business_id INTEGER REFERENCES business(shop_id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    is_approved BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE price_lists (
+    id SERIAL PRIMARY KEY,
+    business_id INTEGER NOT NULL REFERENCES business(shop_id) ON DELETE CASCADE,
+    image_url VARCHAR(255) NOT NULL,
+    is_approved BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE business_photos (
+    id SERIAL PRIMARY KEY,
+    business_id INTEGER NOT NULL REFERENCES business(shop_id) ON DELETE CASCADE,
+    image_url VARCHAR(255) NOT NULL,
+    is_approved BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE product_favorites (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE business_favorites (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    business_id INT NOT NULL REFERENCES business(shop_id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE best_of_day (
+    id SERIAL PRIMARY KEY,
+    business_id INTEGER REFERENCES business(shop_id) ON DELETE CASCADE,
+    date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE ad_packages (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(20) NOT NULL UNIQUE,
+  name VARCHAR(50) NOT NULL,
+  monthly_price NUMERIC(10,2) NOT NULL DEFAULT 0,
+  daily_user_cap INT NOT NULL DEFAULT 3,
+  priority_weight INT NOT NULL DEFAULT 1,
+  show_home BOOLEAN NOT NULL DEFAULT TRUE,
+  show_search BOOLEAN NOT NULL DEFAULT FALSE,
+  show_map BOOLEAN NOT NULL DEFAULT FALSE,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE ad_subscriptions (
+  id SERIAL PRIMARY KEY,
+  business_id INTEGER NOT NULL REFERENCES business(shop_id) ON DELETE CASCADE,
+  package_id INTEGER NOT NULL REFERENCES ad_packages(id) ON DELETE RESTRICT,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  starts_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  ends_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE ad_impressions (
+  id BIGSERIAL PRIMARY KEY,
+  subscription_id INTEGER NOT NULL REFERENCES ad_subscriptions(id) ON DELETE CASCADE,
+  business_id INTEGER NOT NULL REFERENCES business(shop_id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  impression_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  placement VARCHAR(10) NOT NULL CHECK (placement IN ('home','search','map')),
+  cnt INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_imp UNIQUE (subscription_id, user_id, impression_date, placement)
+);
+
+CREATE TABLE ad_clicks (
+  id BIGSERIAL PRIMARY KEY,
+  subscription_id INTEGER NOT NULL REFERENCES ad_subscriptions(id) ON DELETE CASCADE,
+  business_id INTEGER NOT NULL REFERENCES business(shop_id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  placement VARCHAR(10) NOT NULL CHECK (placement IN ('home','search','map')),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_messages_chat_id ON messages(chat_id);
+CREATE INDEX idx_offers_chat_id ON offers(chat_id);
+CREATE INDEX idx_staff_business_id ON staff(business_id);
+CREATE INDEX idx_staff_services_staff_id ON staff_services(staff_id);
+CREATE INDEX idx_staff_services_product_id ON staff_services(product_id);
+CREATE INDEX idx_staff_availability_staff_id ON staff_availability(staff_id);
+CREATE INDEX idx_appointments_business_id ON appointments(business_id);
+CREATE INDEX idx_appointments_user_id ON appointments(user_id);
+CREATE INDEX idx_appointments_staff_date ON appointments(staff_id, appointment_date);
+CREATE INDEX idx_ad_sub_business ON ad_subscriptions(business_id);
+CREATE INDEX idx_ad_sub_status_end ON ad_subscriptions(status, ends_at);
+CREATE INDEX idx_imp_business_date ON ad_impressions(business_id, impression_date);
+CREATE INDEX idx_imp_user_date ON ad_impressions(user_id, impression_date);
+CREATE INDEX idx_click_business ON ad_clicks(business_id);

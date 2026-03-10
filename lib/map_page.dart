@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'db_helper.dart';
 import 'business_detail_page.dart';
 
-/// Map page — shows businesses with coordinates in a scrollable card list.
-/// To use a real map, add the `flutter_map` + `latlong2` packages and
-/// uncomment the FlutterMap widget below.
 class MapPage extends StatefulWidget {
   final Map<String, dynamic> user;
   const MapPage({super.key, required this.user});
@@ -15,16 +13,23 @@ class MapPage extends StatefulWidget {
 
 class _MapPageState extends State<MapPage> {
   List<Map<String, dynamic>> _businesses = [];
-  List<Map<String, dynamic>> _filtered = [];
   bool _loading = true;
-  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+  String _selectedCategory = '';
+  List<String> _categories = [];
+  InAppWebViewController? _webCtrl;
+  bool _mapReady = false;
   Map<String, dynamic>? _selected;
+  final _searchCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load();
-    _searchCtrl.addListener(_filter);
+    _searchCtrl.addListener(() {
+      setState(() => _searchQuery = _searchCtrl.text.toLowerCase());
+      _pushMarkersToMap();
+    });
   }
 
   @override
@@ -36,28 +41,102 @@ class _MapPageState extends State<MapPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final all = await DatabaseHelper.getBusinesses();
-    // Only keep businesses that have coordinates
-    final withCoords = all
-        .where((b) => b['latitude'] != null && b['longitude'] != null)
-        .toList();
+    final cats = <String>{};
+    for (final b in all) {
+      final c = b['category']?.toString() ?? '';
+      if (c.isNotEmpty) cats.add(c);
+    }
     setState(() {
-      _businesses = withCoords;
-      _filtered = withCoords;
+      _businesses = all
+          .where((b) => b['latitude'] != null && b['longitude'] != null)
+          .toList();
+      _categories = cats.toList()..sort();
       _loading = false;
     });
+    _pushMarkersToMap();
   }
 
-  void _filter() {
-    final q = _searchCtrl.text.toLowerCase();
-    setState(() {
-      _filtered = _businesses.where((b) {
-        return q.isEmpty ||
-            (b['name'] ?? '').toString().toLowerCase().contains(q) ||
-            (b['address'] ?? '').toString().toLowerCase().contains(q) ||
-            (b['category'] ?? '').toString().toLowerCase().contains(q);
+  List<Map<String, dynamic>> get _filtered => _businesses.where((b) {
+        final matchSearch = _searchQuery.isEmpty ||
+            (b['name'] ?? '').toString().toLowerCase().contains(_searchQuery) ||
+            (b['address'] ?? '')
+                .toString()
+                .toLowerCase()
+                .contains(_searchQuery);
+        final matchCat =
+            _selectedCategory.isEmpty || b['category'] == _selectedCategory;
+        return matchSearch && matchCat;
       }).toList();
-    });
+
+  String _buildLeafletHtml() => '''
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body, #map { width:100%; height:100%; }
+  .leaflet-popup-content-wrapper { border-radius:10px; border-top:4px solid #1A73E8; box-shadow:0 4px 16px rgba(0,0,0,.15); }
+  .leaflet-popup-content { font-size:13px; color:#333; margin:10px; }
+  .pname { font-weight:700; font-size:14px; color:#1A73E8; margin-bottom:4px; }
+  .pcat  { color:#888; font-size:12px; margin-bottom:3px; }
+  .paddr { color:#555; font-size:12px; margin-bottom:8px; }
+  .pbtn  { display:block; background:#1A73E8; color:#fff; padding:7px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; border:none; width:100%; text-align:center; }
+  .pbtn:hover { background:#0D47A1; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map("map").setView([38.4192,27.1287],12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(map);
+let markers=[];
+
+function setMarkers(list){
+  markers.forEach(m=>map.removeLayer(m)); markers=[];
+  list.forEach(b=>{
+    if(!b.latitude||!b.longitude) return;
+    const icon=L.divIcon({className:"",html:'<div style="background:#1A73E8;width:14px;height:14px;border-radius:50%;border:2.5px solid white;box-shadow:0 1px 5px rgba(0,0,0,.5)"></div>',iconSize:[14,14],iconAnchor:[7,7]});
+    const m=L.marker([b.latitude,b.longitude],{icon}).addTo(map);
+    m.bindPopup(
+      '<div class="pname">'+b.name+'</div>'+
+      (b.category?'<div class="pcat">'+b.category+'</div>':'')+
+      (b.address?'<div class="paddr">'+b.address+'</div>':'')+
+      '<button class="pbtn" onclick="tap('+b.shop_id+')">View Details</button>'
+    );
+    markers.push(m);
+  });
+  if(markers.length){const g=L.featureGroup(markers);map.fitBounds(g.getBounds(),{padding:[40,40]});}
+}
+
+function tap(id){ window.flutter_inappwebview.callHandler("onTap",id); }
+window.addEventListener("flutterInAppWebViewPlatformReady",()=>{ window.flutter_inappwebview.callHandler("ready"); });
+</script>
+</body>
+</html>
+''';
+
+  void _pushMarkersToMap() {
+    if (!_mapReady || _webCtrl == null) return;
+    final list = _filtered;
+    final sb = StringBuffer('setMarkers([');
+    for (int i = 0; i < list.length; i++) {
+      final b = list[i];
+      final lat = DatabaseHelper.toDouble(b['latitude']) ?? 0;
+      final lng = DatabaseHelper.toDouble(b['longitude']) ?? 0;
+      sb.write(
+          '{"shop_id":${b['shop_id']},"name":"${_e(b['name'])}","address":"${_e(b['address'])}","category":"${_e(b['category'])}","latitude":$lat,"longitude":$lng}');
+      if (i < list.length - 1) sb.write(',');
+    }
+    sb.write(']);');
+    _webCtrl!.evaluateJavascript(source: sb.toString());
   }
+
+  String _e(dynamic s) =>
+      (s ?? '').toString().replaceAll('"', '\\"').replaceAll("'", "\\'");
 
   @override
   Widget build(BuildContext context) {
@@ -66,416 +145,147 @@ class _MapPageState extends State<MapPage> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A73E8),
         foregroundColor: Colors.white,
-        title: const Text('Nearby Businesses',
+        title: const Text('Explore Map',
             style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _load,
-          )
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _load)
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                // ── Search ───────────────────────────────────────────────
-                Container(
-                  color: const Color(0xFF1A73E8),
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: TextField(
-                    controller: _searchCtrl,
-                    style: const TextStyle(color: Colors.black87),
-                    decoration: InputDecoration(
-                      hintText: 'Search by name, address, category…',
-                      prefixIcon:
-                          const Icon(Icons.search, color: Color(0xFF1A73E8)),
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: EdgeInsets.zero,
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none),
-                    ),
-                  ),
+      body: Column(children: [
+        // Search + category
+        Container(
+          color: const Color(0xFF1A73E8),
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _searchCtrl,
+                style: const TextStyle(color: Colors.black87),
+                decoration: InputDecoration(
+                  hintText: 'Search businesses…',
+                  prefixIcon:
+                      const Icon(Icons.search, color: Color(0xFF1A73E8)),
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: EdgeInsets.zero,
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none),
                 ),
-
-                // ── Map placeholder ───────────────────────────────────────
-                Container(
-                  height: 200,
-                  margin: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.08),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      )
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: Stack(
-                      children: [
-                        // Grid pattern to simulate a map
-                        CustomPaint(
-                          size: const Size(double.infinity, 200),
-                          painter: _MapGridPainter(),
-                        ),
-                        // Business dots
-                        if (_filtered.isNotEmpty)
-                          ..._filtered.take(20).map((b) {
-                            final lat = _toDouble(b['latitude']) ?? 0;
-                            final lng = _toDouble(b['longitude']) ?? 0;
-                            final isSelected =
-                                _selected?['shop_id'] == b['shop_id'];
-                            // Normalize lat/lng to canvas position (rough demo)
-                            final allLats = _filtered
-                                .map((x) => _toDouble(x['latitude']) ?? 0)
-                                .toList();
-                            final allLngs = _filtered
-                                .map((x) => _toDouble(x['longitude']) ?? 0)
-                                .toList();
-                            final minLat =
-                                allLats.reduce((a, b) => a < b ? a : b);
-                            final maxLat =
-                                allLats.reduce((a, b) => a > b ? a : b);
-                            final minLng =
-                                allLngs.reduce((a, b) => a < b ? a : b);
-                            final maxLng =
-                                allLngs.reduce((a, b) => a > b ? a : b);
-                            final latRange = (maxLat - minLat).abs() < 0.001
-                                ? 1.0
-                                : maxLat - minLat;
-                            final lngRange = (maxLng - minLng).abs() < 0.001
-                                ? 1.0
-                                : maxLng - minLng;
-
-                            return LayoutBuilder(
-                              builder: (ctx, constraints) {
-                                final x = ((lng - minLng) / lngRange) *
-                                        (constraints.maxWidth - 40) +
-                                    20;
-                                final y =
-                                    (1 - (lat - minLat) / latRange) * (180) +
-                                        10;
-                                return Positioned(
-                                  left: x - 10,
-                                  top: y - 10,
-                                  child: GestureDetector(
-                                    onTap: () => setState(() => _selected = b),
-                                    child: AnimatedContainer(
-                                      duration:
-                                          const Duration(milliseconds: 200),
-                                      width: isSelected ? 28 : 20,
-                                      height: isSelected ? 28 : 20,
-                                      decoration: BoxDecoration(
-                                        color: isSelected
-                                            ? const Color(0xFF1A73E8)
-                                            : Colors.red,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                            color: Colors.white, width: 2),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color:
-                                                Colors.black.withOpacity(0.3),
-                                            blurRadius: 4,
-                                          )
-                                        ],
-                                      ),
-                                      child: isSelected
-                                          ? const Icon(Icons.store,
-                                              size: 14, color: Colors.white)
-                                          : null,
-                                    ),
-                                  ),
-                                );
-                              },
-                            );
-                          }),
-
-                        // Map label
-                        Positioned(
-                          bottom: 8,
-                          right: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.85),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.location_on,
-                                    size: 12, color: Colors.red),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '${_filtered.length} businesses',
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-
-                        // No coords message
-                        if (_businesses.isEmpty)
-                          Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.map_outlined,
-                                    size: 40, color: Colors.grey.shade400),
-                                const SizedBox(height: 8),
-                                Text('No location data available',
-                                    style:
-                                        TextStyle(color: Colors.grey.shade500)),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // ── Selected business card ────────────────────────────────
-                if (_selected != null)
-                  GestureDetector(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => BusinessDetailPage(
-                          shopId: _selected!['shop_id'] as int,
-                          user: widget.user,
-                        ),
-                      ),
-                    ),
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1A73E8),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.store,
-                              color: Colors.white, size: 20),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(_selected!['name'] ?? '',
-                                    style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold)),
-                                if ((_selected!['address'] ?? '').isNotEmpty)
-                                  Text(_selected!['address'],
-                                      style: const TextStyle(
-                                          color: Colors.white70, fontSize: 12),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis),
-                              ],
-                            ),
-                          ),
-                          const Icon(Icons.arrow_forward_ios,
-                              color: Colors.white70, size: 14),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                // ── Business list ─────────────────────────────────────────
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Row(
-                    children: [
-                      const Text('All Locations',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 16)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1A73E8).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text('${_filtered.length}',
-                            style: const TextStyle(
-                                color: Color(0xFF1A73E8),
-                                fontWeight: FontWeight.w600,
-                                fontSize: 12)),
-                      ),
-                    ],
-                  ),
-                ),
-
-                Expanded(
-                  child: _filtered.isEmpty
-                      ? Center(
-                          child: Text('No businesses with location data.',
-                              style: TextStyle(color: Colors.grey.shade500)))
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                          itemCount: _filtered.length,
-                          itemBuilder: (_, i) {
-                            final b = _filtered[i];
-                            final lat = _toDouble(b['latitude']);
-                            final lng = _toDouble(b['longitude']);
-                            final isSelected =
-                                _selected?['shop_id'] == b['shop_id'];
-                            return GestureDetector(
-                              onTap: () {
-                                setState(() => _selected = b);
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => BusinessDetailPage(
-                                      shopId: b['shop_id'] as int,
-                                      user: widget.user,
-                                    ),
-                                  ),
-                                );
-                              },
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                margin: const EdgeInsets.only(bottom: 10),
-                                padding: const EdgeInsets.all(14),
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? const Color(0xFF1A73E8)
-                                          .withOpacity(0.08)
-                                      : Colors.white,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: isSelected
-                                        ? const Color(0xFF1A73E8)
-                                        : Colors.transparent,
-                                    width: 1.5,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.05),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 2),
-                                    )
-                                  ],
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 44,
-                                      height: 44,
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF1A73E8)
-                                            .withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: const Icon(Icons.location_on,
-                                          color: Color(0xFF1A73E8), size: 22),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(b['name'] ?? '',
-                                              style: const TextStyle(
-                                                  fontWeight: FontWeight.w600,
-                                                  fontSize: 14)),
-                                          if ((b['address'] ?? '').isNotEmpty)
-                                            Text(b['address'],
-                                                style: TextStyle(
-                                                    fontSize: 12,
-                                                    color:
-                                                        Colors.grey.shade500),
-                                                maxLines: 1,
-                                                overflow:
-                                                    TextOverflow.ellipsis),
-                                          if (lat != null && lng != null)
-                                            Text(
-                                              '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}',
-                                              style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: Colors.grey.shade400),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                    if ((b['category'] ?? '').isNotEmpty)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 8, vertical: 3),
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey.shade100,
-                                          borderRadius:
-                                              BorderRadius.circular(20),
-                                        ),
-                                        child: Text(b['category'],
-                                            style: TextStyle(
-                                                fontSize: 10,
-                                                color: Colors.grey.shade600)),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ],
+              ),
             ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                  color: Colors.white, borderRadius: BorderRadius.circular(10)),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selectedCategory.isEmpty ? null : _selectedCategory,
+                  hint: const Text('All', style: TextStyle(fontSize: 13)),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('All')),
+                    ..._categories.map((c) => DropdownMenuItem(
+                        value: c,
+                        child: Text(c, style: const TextStyle(fontSize: 13)))),
+                  ],
+                  onChanged: (v) {
+                    setState(() => _selectedCategory = v ?? '');
+                    _pushMarkersToMap();
+                  },
+                ),
+              ),
+            ),
+          ]),
+        ),
+
+        // Leaflet map
+        Expanded(
+          flex: 3,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : InAppWebView(
+                  initialData:
+                      InAppWebViewInitialData(data: _buildLeafletHtml()),
+                  initialSettings:
+                      InAppWebViewSettings(javaScriptEnabled: true),
+                  onWebViewCreated: (ctrl) {
+                    _webCtrl = ctrl;
+                    ctrl.addJavaScriptHandler(
+                        handlerName: 'ready',
+                        callback: (_) {
+                          setState(() => _mapReady = true);
+                          _pushMarkersToMap();
+                        });
+                    ctrl.addJavaScriptHandler(
+                        handlerName: 'onTap',
+                        callback: (args) {
+                          final shopId =
+                              args.isNotEmpty ? (args[0] as num).toInt() : null;
+                          if (shopId == null) return;
+                          final b = _businesses.firstWhere(
+                              (b) => b['shop_id'] == shopId,
+                              orElse: () => {});
+                          if (b.isEmpty) return;
+                          setState(() => _selected = b);
+                          Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => BusinessDetailPage(
+                                      shopId: shopId, user: widget.user)));
+                        });
+                  },
+                ),
+        ),
+
+        // Selected banner
+        if (_selected != null)
+          GestureDetector(
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => BusinessDetailPage(
+                        shopId: _selected!['shop_id'] as int,
+                        user: widget.user))),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              color: const Color(0xFF1A73E8),
+              child: Row(children: [
+                const Icon(Icons.store, color: Colors.white, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(_selected!['name'] ?? '',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
+                      if ((_selected!['address'] ?? '').isNotEmpty)
+                        Text(_selected!['address'],
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 12),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                    ])),
+                const Icon(Icons.arrow_forward_ios,
+                    color: Colors.white70, size: 14),
+              ]),
+            ),
+          ),
+
+        // Count footer
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          color: Colors.white,
+          child: Row(children: [
+            const Icon(Icons.location_on, size: 14, color: Color(0xFF1A73E8)),
+            const SizedBox(width: 6),
+            Text('${_filtered.length} businesses on map',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          ]),
+        ),
+      ]),
     );
   }
-
-  double? _toDouble(dynamic val) {
-    if (val == null) return null;
-    if (val is double) return val;
-    if (val is int) return val.toDouble();
-    if (val is String) return double.tryParse(val);
-    return double.tryParse(val.toString());
-  }
-}
-
-class _MapGridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final bgPaint = Paint()..color = const Color(0xFFE8F0FE);
-    canvas.drawRect(Offset.zero & size, bgPaint);
-
-    final gridPaint = Paint()
-      ..color = const Color(0xFFBBCEF8)
-      ..strokeWidth = 0.5;
-
-    for (double x = 0; x < size.width; x += 30) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
-    }
-    for (double y = 0; y < size.height; y += 30) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    // Draw some "roads"
-    final roadPaint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 3;
-    canvas.drawLine(Offset(0, size.height * 0.4),
-        Offset(size.width, size.height * 0.4), roadPaint);
-    canvas.drawLine(Offset(size.width * 0.3, 0),
-        Offset(size.width * 0.3, size.height), roadPaint);
-    canvas.drawLine(Offset(size.width * 0.7, 0),
-        Offset(size.width * 0.7, size.height), roadPaint);
-    canvas.drawLine(Offset(0, size.height * 0.7),
-        Offset(size.width, size.height * 0.7), roadPaint);
-  }
-
-  @override
-  bool shouldRepaint(_) => false;
 }

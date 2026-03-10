@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'db_helper.dart';
 import 'home_page.dart';
+import 'owner_dashboard.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -77,10 +78,18 @@ class _LoginPageState extends State<LoginPage>
     try {
       final user = await DatabaseHelper.loginUser(email, pass);
       if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => HomePage(user: user)),
-      );
+      final role = (user['role_type'] ?? '').toString().toLowerCase();
+      if (role == 'business' || role == 'owner' || role == 'business_owner') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => OwnerDashboard(user: user)),
+        );
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => HomePage(user: user)),
+        );
+      }
     } catch (e) {
       setState(() {
         _loginLoading = false;
@@ -304,88 +313,82 @@ class _LoginPageState extends State<LoginPage>
               decoration: _inputDeco('Home Address (optional)')),
           const SizedBox(height: 12),
 
-          // Password with real-time rules
-          StatefulBuilder(
-            builder: (ctx, setSB) => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+          // Password fields — onChanged calls setState on the parent
+          // so _passwordValid recalculates and the button updates
+          TextField(
+            controller: _regPassCtrl,
+            obscureText: _regPassHidden,
+            onChanged: (_) => setState(() {}),
+            decoration: _inputDeco(
+              'Create Password',
+              suffix: IconButton(
+                icon: Icon(
+                    _regPassHidden ? Icons.visibility_off : Icons.visibility),
+                onPressed: () =>
+                    setState(() => _regPassHidden = !_regPassHidden),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _regConfirmCtrl,
+            obscureText: _regConfirmHidden,
+            onChanged: (_) => setState(() {}),
+            decoration: _inputDeco(
+              'Confirm Password',
+              suffix: IconButton(
+                icon: Icon(_regConfirmHidden
+                    ? Icons.visibility_off
+                    : Icons.visibility),
+                onPressed: () =>
+                    setState(() => _regConfirmHidden = !_regConfirmHidden),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Password rules
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                TextField(
-                  controller: _regPassCtrl,
-                  obscureText: _regPassHidden,
-                  onChanged: (_) => setSB(() {}),
-                  decoration: _inputDeco(
-                    'Create Password',
-                    suffix: IconButton(
-                      icon: Icon(_regPassHidden
-                          ? Icons.visibility_off
-                          : Icons.visibility),
-                      onPressed: () =>
-                          setSB(() => _regPassHidden = !_regPassHidden),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _regConfirmCtrl,
-                  obscureText: _regConfirmHidden,
-                  onChanged: (_) => setSB(() {}),
-                  decoration: _inputDeco(
-                    'Confirm Password',
-                    suffix: IconButton(
-                      icon: Icon(_regConfirmHidden
-                          ? Icons.visibility_off
-                          : Icons.visibility),
-                      onPressed: () =>
-                          setSB(() => _regConfirmHidden = !_regConfirmHidden),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _ruleRow('At least 8 characters', _hasLength),
-                      const SizedBox(height: 4),
-                      _ruleRow('At least 1 uppercase letter', _hasUppercase),
-                      const SizedBox(height: 4),
-                      _ruleRow('At least 1 number', _hasNumber),
-                      const SizedBox(height: 4),
-                      _ruleRow('Passwords match', _passwordsMatch),
-                    ],
-                  ),
-                ),
+                _ruleRow('At least 8 characters', _hasLength),
+                const SizedBox(height: 4),
+                _ruleRow('At least 1 uppercase letter', _hasUppercase),
+                const SizedBox(height: 4),
+                _ruleRow('At least 1 number', _hasNumber),
+                const SizedBox(height: 4),
+                _ruleRow('Passwords match', _passwordsMatch),
               ],
             ),
           ),
 
           const SizedBox(height: 24),
-          StatefulBuilder(
-            builder: (_, setSB) => ElevatedButton(
-              onPressed: (_regLoading || !_passwordValid) ? null : _doRegister,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1A73E8),
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: Colors.grey.shade300,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-              child: _regLoading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Text('Sign Up',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          ElevatedButton(
+            onPressed: (_regLoading || !_passwordValid) ? null : _doRegister,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1A73E8),
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: Colors.grey.shade300,
+              disabledForegroundColor: Colors.grey.shade500,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
+            child: _regLoading
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : const Text('Sign Up',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
           ),
           const SizedBox(height: 16),
           TextButton(
