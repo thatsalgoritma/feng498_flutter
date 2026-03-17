@@ -83,7 +83,6 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     final pages = [
       _InfoTab(biz: _biz!, onSaved: _load),
       _ProductsTab(shopId: sid),
-      _PriceListTab(shopId: sid),
       _StaffTab(shopId: sid),
       _BookingsTab(shopId: sid),
       _OffersTab(shopId: sid, ownerId: oid),
@@ -142,10 +141,6 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
               selectedIcon: Icon(Icons.inventory_2, color: _kBlue),
               label: 'Products'),
           NavigationDestination(
-              icon: Icon(Icons.price_change_outlined),
-              selectedIcon: Icon(Icons.price_change, color: _kBlue),
-              label: 'Prices'),
-          NavigationDestination(
               icon: Icon(Icons.people_outline),
               selectedIcon: Icon(Icons.people, color: _kBlue),
               label: 'Staff'),
@@ -157,10 +152,6 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
               icon: Icon(Icons.local_offer_outlined),
               selectedIcon: Icon(Icons.local_offer, color: _kBlue),
               label: 'Offers'),
-          NavigationDestination(
-              icon: Icon(Icons.chat_bubble_outline),
-              selectedIcon: Icon(Icons.chat_bubble, color: _kBlue),
-              label: 'Messages'),
           NavigationDestination(
               icon: Icon(Icons.star_outline),
               selectedIcon: Icon(Icons.star, color: _kBlue),
@@ -200,6 +191,13 @@ class _InfoTabState extends State<_InfoTab> {
   final Map<String, Map<String, dynamic>> _hrs = {};
   bool _hrsLoading = true;
 
+  // ── NEW: Business images ───────────────────────────────────────────────
+  List<String> _existingPhotos = []; // already saved URLs / paths from DB
+  List<File> _newPhotos = []; // freshly picked, not yet saved
+  bool _photosLoading = true;
+  static const int _maxPhotos = 10;
+  // ──────────────────────────────────────────────────────────────────────
+
   @override
   void initState() {
     super.initState();
@@ -214,6 +212,7 @@ class _InfoTabState extends State<_InfoTab> {
       _hrs[d] = {'open': '09:00', 'close': '18:00', 'closed': false};
     _loadTurkey();
     _loadHours();
+    _loadPhotos(); // NEW
   }
 
   @override
@@ -225,6 +224,28 @@ class _InfoTabState extends State<_InfoTab> {
     super.dispose();
   }
 
+  // ── NEW: load existing photos ──────────────────────────────────────────
+  Future<void> _loadPhotos() async {
+    setState(() => _photosLoading = true);
+    _existingPhotos =
+        await DatabaseHelper.getBusinessPhotos(widget.biz['shop_id'] as int);
+    setState(() => _photosLoading = false);
+  }
+
+  int get _totalPhotos => _existingPhotos.length + _newPhotos.length;
+
+  Future<void> _pickPhotos() async {
+    final remaining = _maxPhotos - _totalPhotos;
+    if (remaining <= 0) return;
+    final picked = await ImagePicker().pickMultiImage(imageQuality: 80);
+    if (picked.isEmpty) return;
+    final limited = picked.take(remaining).map((x) => File(x.path)).toList();
+    setState(() => _newPhotos.addAll(limited));
+  }
+
+  void _removeNew(int index) => setState(() => _newPhotos.removeAt(index));
+  // ──────────────────────────────────────────────────────────────────────
+
   Future<void> _loadTurkey() async {
     try {
       final raw = await rootBundle.loadString('assets/turkey.json');
@@ -233,7 +254,6 @@ class _InfoTabState extends State<_InfoTab> {
         _provinces = list;
         _turkeLoaded = true;
       });
-
       final parts = (widget.biz['address'] ?? '')
           .toString()
           .split(',')
@@ -267,10 +287,9 @@ class _InfoTabState extends State<_InfoTab> {
       return;
     }
     final set = <String>{};
-    for (final t in (dObj['Towns'] as List? ?? [])) {
+    for (final t in (dObj['Towns'] as List? ?? []))
       for (final n in (t['Neighbourhoods'] as List? ?? []))
         set.add(n.toString());
-    }
     _hoods = set.toList()..sort();
   }
 
@@ -284,7 +303,7 @@ class _InfoTabState extends State<_InfoTab> {
         _hrs[d] = {
           'open': _ts(r['open_hour']),
           'close': _ts(r['close_hour']),
-          'closed': r['is_closed'] == true
+          'closed': r['is_closed'] == true,
         };
     }
     setState(() => _hrsLoading = false);
@@ -342,6 +361,12 @@ class _InfoTabState extends State<_InfoTab> {
           'is_closed': _hrs[day]!['closed'],
         });
       }
+      // ── NEW: upload new photos ───────────────────────────────────────
+      for (final f in _newPhotos)
+        await DatabaseHelper.addProductPhoto(sid, f.path);
+      _newPhotos.clear();
+      await _loadPhotos(); // refresh existing list
+      // ────────────────────────────────────────────────────────────────
       widget.onSaved();
       if (mounted) _snack('Saved!', _kGreen);
     } catch (e) {
@@ -366,8 +391,126 @@ class _InfoTabState extends State<_InfoTab> {
         _tf('Phone', _telC, Icons.phone_outlined, kb: TextInputType.phone),
         _tf('Description', _descC, Icons.info_outline, lines: 3),
 
-        // ── Address dropdowns ─────────────────────────────────────────
+        // ── NEW: Business Photos ──────────────────────────────────────
         const SizedBox(height: 6),
+        _sh(Icons.photo_library_outlined, 'Business Photos'),
+        const SizedBox(height: 6),
+        Row(children: [
+          Text('$_totalPhotos / $_maxPhotos photos',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          const Spacer(),
+          if (_totalPhotos < _maxPhotos)
+            TextButton.icon(
+              onPressed: _pickPhotos,
+              icon: const Icon(Icons.add_photo_alternate_outlined,
+                  size: 18, color: _kBlue),
+              label: const Text('Add', style: TextStyle(color: _kBlue)),
+            ),
+        ]),
+        const SizedBox(height: 8),
+        if (_photosLoading)
+          const Center(
+              child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: CircularProgressIndicator()))
+        else if (_totalPhotos == 0)
+          GestureDetector(
+            onTap: _pickPhotos,
+            child: Container(
+              height: 90,
+              decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: Colors.grey.shade300, style: BorderStyle.solid)),
+              child: const Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.add_photo_alternate_outlined,
+                        size: 32, color: Colors.grey),
+                    SizedBox(height: 6),
+                    Text('Tap to add business photos',
+                        style: TextStyle(color: Colors.grey, fontSize: 13)),
+                  ]),
+            ),
+          )
+        else
+          SizedBox(
+            height: 110,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                // ── existing photos (saved) ──
+                ..._existingPhotos.asMap().entries.map((e) {
+                  final src = e.value;
+                  final isNet = src.startsWith('http');
+                  return _photoThumb(
+                    child: isNet
+                        ? Image.network(src,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const _BrokenImg())
+                        : Image.file(File(src),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const _BrokenImg()),
+                    badge: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                          color: _kGreen,
+                          borderRadius: BorderRadius.circular(6)),
+                      child: const Text('Saved',
+                          style: TextStyle(color: Colors.white, fontSize: 9)),
+                    ),
+                  );
+                }),
+                // ── new photos (pending save) ──
+                ..._newPhotos.asMap().entries.map((e) {
+                  final i = e.key;
+                  return _photoThumb(
+                    child: Image.file(_newPhotos[i], fit: BoxFit.cover),
+                    badge: GestureDetector(
+                      onTap: () => _removeNew(i),
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: const BoxDecoration(
+                            color: Colors.red, shape: BoxShape.circle),
+                        child: const Icon(Icons.close,
+                            color: Colors.white, size: 13),
+                      ),
+                    ),
+                  );
+                }),
+                // ── add more tile ──
+                if (_totalPhotos < _maxPhotos)
+                  GestureDetector(
+                    onTap: _pickPhotos,
+                    child: Container(
+                      width: 90,
+                      margin: const EdgeInsets.only(right: 8),
+                      decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.grey.shade300)),
+                      child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add_photo_alternate_outlined,
+                                color: Colors.grey, size: 28),
+                            SizedBox(height: 4),
+                            Text('Add',
+                                style: TextStyle(
+                                    color: Colors.grey, fontSize: 11)),
+                          ]),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        // ─────────────────────────────────────────────────────────────
+
+        // ── Address dropdowns ─────────────────────────────────────────
+        const SizedBox(height: 18),
         _sh(Icons.location_on, 'Address'),
         const SizedBox(height: 14),
         _lbl('Province'),
@@ -498,6 +641,23 @@ class _InfoTabState extends State<_InfoTab> {
     );
   }
 
+  // ── NEW: photo thumbnail helper ────────────────────────────────────────
+  Widget _photoThumb({required Widget child, required Widget badge}) =>
+      Container(
+        width: 90,
+        margin: const EdgeInsets.only(right: 8),
+        child: Stack(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(width: 90, height: 110, child: child),
+            ),
+            Positioned(top: 5, right: 5, child: badge),
+          ],
+        ),
+      );
+  // ──────────────────────────────────────────────────────────────────────
+
   Widget _sh(IconData ic, String t) => Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(children: [
@@ -506,6 +666,7 @@ class _InfoTabState extends State<_InfoTab> {
         Text(t,
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17))
       ]));
+
   Widget _lbl(String t) => Padding(
       padding: const EdgeInsets.only(bottom: 5),
       child: Text(t,
@@ -555,6 +716,8 @@ class _InfoTabState extends State<_InfoTab> {
         )),
       );
 }
+
+// _MapPickerPage, _HourRow, _BrokenImg — all completely unchanged
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAP PICKER SCREEN
@@ -744,7 +907,7 @@ class _HourRow extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TAB 2 — PRODUCTS
+// TAB 2 — PRODUCTS  (now has two sub-tabs: Products | Menu Images)
 // ═════════════════════════════════════════════════════════════════════════════
 
 class _ProductsTab extends StatefulWidget {
@@ -754,7 +917,70 @@ class _ProductsTab extends StatefulWidget {
   State<_ProductsTab> createState() => _ProductsTabState();
 }
 
-class _ProductsTabState extends State<_ProductsTab> {
+class _ProductsTabState extends State<_ProductsTab>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabCtrl = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+        children: [
+          // ── Sub-tab bar ──────────────────────────────────────────
+          Container(
+            color: Colors.white,
+            child: TabBar(
+              controller: _tabCtrl,
+              labelColor: _kBlue,
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: _kBlue,
+              indicatorWeight: 3,
+              tabs: const [
+                Tab(
+                    icon: Icon(Icons.inventory_2_outlined, size: 18),
+                    text: 'Products'),
+                Tab(
+                    icon: Icon(Icons.photo_library_outlined, size: 18),
+                    text: 'Menu Images'),
+              ],
+            ),
+          ),
+          // ── Sub-tab views ────────────────────────────────────────
+          Expanded(
+            child: TabBarView(
+              controller: _tabCtrl,
+              children: [
+                _ProductsList(shopId: widget.shopId),
+                _MenuImagesTab(shopId: widget.shopId),
+              ],
+            ),
+          ),
+        ],
+      );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Products list (extracted from the original _ProductsTab body)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ProductsList extends StatefulWidget {
+  final int shopId;
+  const _ProductsList({required this.shopId});
+  @override
+  State<_ProductsList> createState() => _ProductsListState();
+}
+
+class _ProductsListState extends State<_ProductsList> {
   List<Map<String, dynamic>> _list = [];
   bool _loading = true;
 
@@ -824,6 +1050,208 @@ class _ProductsTabState extends State<_ProductsTab> {
                     }),
       );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Menu Images Tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _MenuImagesTab extends StatefulWidget {
+  final int shopId;
+  const _MenuImagesTab({required this.shopId});
+  @override
+  State<_MenuImagesTab> createState() => _MenuImagesTabState();
+}
+
+class _MenuImagesTabState extends State<_MenuImagesTab> {
+  List<String> _photos = [];
+  bool _loading = true;
+  bool _uploading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    _photos = await DatabaseHelper.getBusinessPhotos(widget.shopId);
+    setState(() => _loading = false);
+  }
+
+  Future<void> _pickAndUpload() async {
+    final picker = ImagePicker();
+    final List<XFile> picked = await picker.pickMultiImage(imageQuality: 80);
+    if (picked.isEmpty) return;
+
+    setState(() => _uploading = true);
+    try {
+      for (final xf in picked) {
+        await DatabaseHelper.addProductPhoto(widget.shopId, xf.path);
+      }
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${picked.length} image(s) uploaded'),
+          backgroundColor: _kGreen,
+        ));
+      }
+    } catch (e) {
+      if (mounted) _errSnack(context, e.toString());
+    }
+    setState(() => _uploading = false);
+  }
+
+  Future<void> _viewFull(BuildContext ctx, int index) => showDialog(
+        context: ctx,
+        builder: (_) => Dialog(
+          backgroundColor: Colors.black,
+          insetPadding: const EdgeInsets.all(12),
+          child: Stack(
+            children: [
+              InteractiveViewer(
+                child: _buildImage(_photos[index], fit: BoxFit.contain),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.pop(_),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  /// Renders either a network image or a local file image.
+  Widget _buildImage(String src,
+      {BoxFit fit = BoxFit.cover, double? width, double? height}) {
+    final isNetwork = src.startsWith('http://') || src.startsWith('https://');
+    if (isNetwork) {
+      return Image.network(
+        src,
+        fit: fit,
+        width: width,
+        height: height,
+        errorBuilder: (_, __, ___) => const _BrokenImg(),
+      );
+    }
+    final file = File(src);
+    return Image.file(
+      file,
+      fit: fit,
+      width: width,
+      height: height,
+      errorBuilder: (_, __, ___) => const _BrokenImg(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: _kBg,
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: _uploading ? null : _pickAndUpload,
+          backgroundColor: _kBlue,
+          foregroundColor: Colors.white,
+          icon: _uploading
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
+              : const Icon(Icons.add_photo_alternate_outlined),
+          label: Text(_uploading ? 'Uploading…' : 'Add Images'),
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _photos.isEmpty
+                ? _empty(
+                    Icons.photo_library_outlined,
+                    'No menu images yet',
+                    'Tap + to upload photos of your menu or dishes.',
+                  )
+                : Column(
+                    children: [
+                      // Count header
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                        child: Row(children: [
+                          const Icon(Icons.photo_library_outlined,
+                              size: 16, color: Colors.grey),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${_photos.length} image${_photos.length == 1 ? '' : 's'}',
+                            style: TextStyle(
+                                fontSize: 13, color: Colors.grey.shade600),
+                          ),
+                        ]),
+                      ),
+                      // Grid
+                      Expanded(
+                        child: GridView.builder(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 80),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: 6,
+                            mainAxisSpacing: 6,
+                          ),
+                          itemCount: _photos.length,
+                          itemBuilder: (ctx, i) => GestureDetector(
+                            onTap: () => _viewFull(ctx, i),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  _buildImage(_photos[i]),
+                                  // subtle tap hint overlay
+                                  Positioned(
+                                    bottom: 0,
+                                    left: 0,
+                                    right: 0,
+                                    child: Container(
+                                      height: 28,
+                                      decoration: const BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.bottomCenter,
+                                          end: Alignment.topCenter,
+                                          colors: [
+                                            Colors.black45,
+                                            Colors.transparent
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+      );
+}
+
+/// Small placeholder shown when an image fails to load.
+class _BrokenImg extends StatelessWidget {
+  const _BrokenImg();
+  @override
+  Widget build(BuildContext context) => Container(
+        color: Colors.grey.shade200,
+        child: const Center(
+            child: Icon(Icons.broken_image_outlined,
+                color: Colors.grey, size: 32)),
+      );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _ProductForm — unchanged from original
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _ProductForm extends StatefulWidget {
   final int shopId;
@@ -1079,163 +1507,6 @@ class _ProductFormState extends State<_ProductForm> {
                       fontWeight: FontWeight.w600,
                       color: on ? col : Colors.grey.shade600)),
             ])),
-      );
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// TAB 3 — PRICE LIST
-// ═════════════════════════════════════════════════════════════════════════════
-
-class _PriceListTab extends StatefulWidget {
-  final int shopId;
-  const _PriceListTab({required this.shopId});
-  @override
-  State<_PriceListTab> createState() => _PriceListTabState();
-}
-
-class _PriceListTabState extends State<_PriceListTab> {
-  List<Map<String, dynamic>> _items = [];
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    setState(() => _loading = true);
-    _items = await DatabaseHelper.getPriceLists(widget.shopId);
-    setState(() => _loading = false);
-  }
-
-  Map<String, List<Map<String, dynamic>>> get _grouped {
-    final m = <String, List<Map<String, dynamic>>>{};
-    for (final i in _items)
-      m
-          .putIfAbsent(
-              (i['categories'] ?? 'Uncategorised').toString(), () => [])
-          .add(i);
-    return m;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_items.isEmpty)
-      return _empty(Icons.price_change_outlined, 'No price list',
-          'Add products from the Products tab.');
-    return RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: _grouped.entries
-              .map((e) => Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                            margin: const EdgeInsets.only(top: 8, bottom: 8),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 8),
-                            decoration: BoxDecoration(
-                                color: _kBlue,
-                                borderRadius: BorderRadius.circular(10)),
-                            child: Text(e.key,
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14))),
-                        Container(
-                          decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              boxShadow: [
-                                BoxShadow(
-                                    color: Colors.black.withOpacity(0.05),
-                                    blurRadius: 8)
-                              ]),
-                          child: Column(
-                              children: e.value.asMap().entries.map((en) {
-                            final idx = en.key;
-                            final it = en.value;
-                            final price =
-                                DatabaseHelper.toDouble(it['product_prices']) ??
-                                    0;
-                            final disc =
-                                DatabaseHelper.toDouble(it['discounted_price']);
-                            final isD =
-                                it['is_discounted'] == true && disc != null;
-                            final isB = it['bookable'] == true;
-                            return Column(children: [
-                              if (idx > 0)
-                                const Divider(
-                                    height: 1, indent: 16, endIndent: 16),
-                              Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 16, vertical: 12),
-                                  child: Row(children: [
-                                    Expanded(
-                                        child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                          Row(children: [
-                                            Text(it['name'] ?? '',
-                                                style: const TextStyle(
-                                                    fontWeight: FontWeight.w600,
-                                                    fontSize: 14)),
-                                            if (isB) ...[
-                                              const SizedBox(width: 6),
-                                              _bdg('Bookable', _kBlue)
-                                            ],
-                                            if (it['available'] != true) ...[
-                                              const SizedBox(width: 6),
-                                              _bdg('Unavail.', Colors.grey)
-                                            ],
-                                          ]),
-                                        ])),
-                                    if (isD)
-                                      Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.end,
-                                          children: [
-                                            Text('₺${disc!.toStringAsFixed(2)}',
-                                                style: const TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 15,
-                                                    color: _kGreen)),
-                                            Text('₺${price.toStringAsFixed(2)}',
-                                                style: const TextStyle(
-                                                    decoration: TextDecoration
-                                                        .lineThrough,
-                                                    fontSize: 12,
-                                                    color: Colors.grey)),
-                                          ])
-                                    else
-                                      Text('₺${price.toStringAsFixed(2)}',
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 15,
-                                              color: _kBlue)),
-                                  ])),
-                            ]);
-                          }).toList()),
-                        ),
-                        const SizedBox(height: 8),
-                      ]))
-              .toList(),
-        ));
-  }
-
-  Widget _bdg(String t, Color c) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-            color: c.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: c.withOpacity(0.4))),
-        child: Text(t,
-            style:
-                TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: c)),
       );
 }
 
@@ -1884,7 +2155,65 @@ class _OffersTab extends StatefulWidget {
   State<_OffersTab> createState() => _OffersTabState();
 }
 
-class _OffersTabState extends State<_OffersTab> {
+class _OffersTabState extends State<_OffersTab>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabCtrl = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+        children: [
+          Container(
+            color: Colors.white,
+            child: TabBar(
+              controller: _tabCtrl,
+              labelColor: _kBlue,
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: _kBlue,
+              indicatorWeight: 3,
+              tabs: const [
+                Tab(
+                    icon: Icon(Icons.local_offer_outlined, size: 18),
+                    text: 'Offers'),
+                Tab(
+                    icon: Icon(Icons.chat_bubble_outline, size: 18),
+                    text: 'Messages'),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabCtrl,
+              children: [
+                _OffersPanel(shopId: widget.shopId, ownerId: widget.ownerId),
+                _MessagesTab(
+                    businessId: widget.shopId, ownerId: widget.ownerId),
+              ],
+            ),
+          ),
+        ],
+      );
+}
+
+class _OffersPanel extends StatefulWidget {
+  final int shopId, ownerId;
+  const _OffersPanel({required this.shopId, required this.ownerId});
+  @override
+  State<_OffersPanel> createState() => _OffersPanelState();
+}
+
+class _OffersPanelState extends State<_OffersPanel> {
   List<Map<String, dynamic>> _offers = [];
   bool _loading = true;
   String _filter = 'all';

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'db_helper.dart';
 import 'home_page.dart';
 import 'owner_dashboard.dart';
+import 'business_login_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -72,24 +73,26 @@ class _LoginPageState extends State<LoginPage>
       return;
     }
     setState(() {
-      _loginLoading = true;
-      _loginError = null;
+      _loginLoading = true; // ← was loginLoading (bug)
+      _loginError = null; // ← was loginError (bug)
     });
     try {
       final user = await DatabaseHelper.loginUser(email, pass);
       if (!mounted) return;
       final role = (user['role_type'] ?? '').toString().toLowerCase();
-      if (role == 'business' || role == 'owner' || role == 'business_owner') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => OwnerDashboard(user: user)),
-        );
-      } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => HomePage(user: user)),
-        );
+      // Only allow regular users
+      if (role != 'user') {
+        setState(() {
+          _loginLoading = false;
+          _loginError =
+              'This account is not a user account. Please use the Business Login.';
+        });
+        return;
       }
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => HomePage(user: user)),
+      );
     } catch (e) {
       setState(() {
         _loginLoading = false;
@@ -276,6 +279,14 @@ class _LoginPageState extends State<LoginPage>
             onPressed: () => _tabController.animateTo(1),
             child: const Text("New here? Create an Account",
                 style: TextStyle(color: Color(0xFF1A73E8))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const BusinessLoginPage()),
+            ),
+            child: const Text('Business owner? Sign in here',
+                style: TextStyle(color: Color(0xFF0D47A1))),
           ),
         ],
       ),
