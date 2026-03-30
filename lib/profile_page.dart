@@ -48,6 +48,42 @@ class _ProfilePageState extends State<ProfilePage>
     });
   }
 
+  Future<void> _deleteReview(int reviewId) async {
+    final ok = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Delete Review'),
+            content: const Text('Are you sure you want to delete this review?'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red, foregroundColor: Colors.white),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!ok) return;
+    try {
+      await DatabaseHelper.deleteReview(reviewId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Review deleted'), backgroundColor: Colors.red));
+      }
+      _loadData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.toString()), backgroundColor: Colors.red));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final name = widget.user['full_name'] ?? 'User';
@@ -150,40 +186,38 @@ class _ProfilePageState extends State<ProfilePage>
               ),
             ),
           ).then((_) => _loadData()),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: const Color(0xFF1A73E8).withOpacity(0.15),
-                child: Text(
-                  (b['name'] ?? '?')[0].toUpperCase(),
-                  style: const TextStyle(
-                      color: Color(0xFF1A73E8),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18),
-                ),
+          child: Row(children: [
+            CircleAvatar(
+              radius: 24,
+              backgroundColor: const Color(0xFF1A73E8).withOpacity(0.15),
+              child: Text(
+                (b['name'] ?? '?')[0].toUpperCase(),
+                style: const TextStyle(
+                    color: Color(0xFF1A73E8),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18),
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(b['name'] ?? '',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w600, fontSize: 15)),
-                    if ((b['address'] ?? '').isNotEmpty)
-                      Text(b['address'],
-                          style: TextStyle(
-                              fontSize: 12, color: Colors.grey.shade500),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
-                    if ((b['category'] ?? '').isNotEmpty) _pill(b['category']),
-                  ],
-                ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(b['name'] ?? '',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 15)),
+                  if ((b['address'] ?? '').isNotEmpty)
+                    Text(b['address'],
+                        style: TextStyle(
+                            fontSize: 12, color: Colors.grey.shade500),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                  if ((b['category'] ?? '').isNotEmpty) _pill(b['category']),
+                ],
               ),
-              const Icon(Icons.chevron_right, color: Colors.grey),
-            ],
-          ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.grey),
+          ]),
         );
       },
     );
@@ -201,6 +235,7 @@ class _ProfilePageState extends State<ProfilePage>
       itemBuilder: (_, i) {
         final r = _reviews[i];
         final rank = (r['rank'] as int?) ?? 0;
+        final reviewId = r['review_id'] as int?;
         return _card(
           onTap: () => Navigator.push(
             context,
@@ -210,29 +245,38 @@ class _ProfilePageState extends State<ProfilePage>
                 user: widget.user,
               ),
             ),
-          ),
+          ).then((_) => _loadData()),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(r['business_name'] ?? '',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w600, fontSize: 15)),
-                  ),
-                  Row(
-                    children: List.generate(
-                      5,
-                      (j) => Icon(
-                        j < rank ? Icons.star : Icons.star_border,
-                        size: 14,
-                        color: const Color(0xFFFFC107),
-                      ),
+              Row(children: [
+                Expanded(
+                  child: Text(r['business_name'] ?? '',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 15)),
+                ),
+                // Star rating
+                Row(
+                  children: List.generate(
+                    5,
+                    (j) => Icon(
+                      j < rank ? Icons.star : Icons.star_border,
+                      size: 14,
+                      color: const Color(0xFFFFC107),
                     ),
                   ),
-                ],
-              ),
+                ),
+                // Delete button
+                if (reviewId != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: GestureDetector(
+                      onTap: () => _deleteReview(reviewId),
+                      child: const Icon(Icons.delete_outline,
+                          size: 18, color: Colors.red),
+                    ),
+                  ),
+              ]),
               if ((r['comments'] ?? '').isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Text(r['comments'],
@@ -275,43 +319,39 @@ class _ProfilePageState extends State<ProfilePage>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(o['business_name'] ?? '',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w600, fontSize: 15)),
-                        if ((o['product_name'] ?? '').isNotEmpty)
-                          Text(o['product_name'],
-                              style: TextStyle(
-                                  fontSize: 12, color: Colors.grey.shade500)),
-                      ],
-                    ),
+              Row(children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(o['business_name'] ?? '',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 15)),
+                      if ((o['product_name'] ?? '').isNotEmpty)
+                        Text(o['product_name'],
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.grey.shade500)),
+                    ],
                   ),
-                  _statusBadge(status),
-                ],
-              ),
+                ),
+                _statusBadge(status),
+              ]),
               const SizedBox(height: 10),
-              Row(
-                children: [
+              Row(children: [
+                _priceChip(
+                    'Your offer',
+                    offeredPrice != null
+                        ? '₺${offeredPrice.toStringAsFixed(2)}'
+                        : '—',
+                    const Color(0xFF1A73E8)),
+                if (counterPrice != null) ...[
+                  const SizedBox(width: 10),
                   _priceChip(
-                      'Your offer',
-                      offeredPrice != null
-                          ? '₺${offeredPrice.toStringAsFixed(2)}'
-                          : '—',
-                      const Color(0xFF1A73E8)),
-                  if (counterPrice != null) ...[
-                    const SizedBox(width: 10),
-                    _priceChip(
-                        'Counter offer',
-                        '₺${counterPrice.toStringAsFixed(2)}',
-                        const Color(0xFFFF6D00)),
-                  ],
+                      'Counter offer',
+                      '₺${counterPrice.toStringAsFixed(2)}',
+                      const Color(0xFFFF6D00)),
                 ],
-              ),
+              ]),
               if ((o['note'] ?? '').isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(o['note'],
@@ -346,10 +386,9 @@ class _ProfilePageState extends State<ProfilePage>
             borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              )
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2))
             ],
           ),
           child: child,
@@ -359,20 +398,17 @@ class _ProfilePageState extends State<ProfilePage>
   Widget _emptyState(IconData icon, String title, String subtitle) => Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 64, color: Colors.grey.shade300),
-              const SizedBox(height: 16),
-              Text(title,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 16)),
-              const SizedBox(height: 8),
-              Text(subtitle,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
-            ],
-          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 64, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            Text(title,
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 8),
+            Text(subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+          ]),
         ),
       );
 
@@ -409,11 +445,9 @@ class _ProfilePageState extends State<ProfilePage>
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: color.withOpacity(0.4)),
       ),
-      child: Text(
-        status.toUpperCase(),
-        style:
-            TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
-      ),
+      child: Text(status.toUpperCase(),
+          style: TextStyle(
+              color: color, fontSize: 10, fontWeight: FontWeight.bold)),
     );
   }
 
@@ -423,16 +457,13 @@ class _ProfilePageState extends State<ProfilePage>
           color: color.withOpacity(0.1),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label,
-                style: TextStyle(fontSize: 10, color: color.withOpacity(0.8))),
-            Text(value,
-                style: TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.bold, color: color)),
-          ],
-        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label,
+              style: TextStyle(fontSize: 10, color: color.withOpacity(0.8))),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.bold, color: color)),
+        ]),
       );
 
   double? _toDouble(dynamic val) {

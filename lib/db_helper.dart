@@ -1064,4 +1064,227 @@ class DatabaseHelper {
     if (val is String) return double.tryParse(val);
     return double.tryParse(val.toString());
   }
+  // ─── USER: REVIEWS ────────────────────────────────────────────────────────
+
+  /// Returns the current user's review for this business, or null if none.
+  static Future<Map<String, dynamic>?> getUserReviewForBusiness(
+      int userId, int businessId) async {
+    final conn = await _connect();
+    try {
+      final result = await conn.execute(
+        Sql.named(
+            'SELECT review_id,rank,comments,time,is_approved FROM reviews WHERE user_id=@uid AND business_id=@bid'),
+        parameters: {'uid': userId, 'bid': businessId},
+      );
+      if (result.isEmpty) return null;
+      final r = result.first;
+      return {
+        'review_id': r[0],
+        'rank': r[1],
+        'comments': r[2],
+        'time': r[3]?.toString(),
+        'is_approved': r[4],
+      };
+    } catch (e) {
+      return null;
+    } finally {
+      await conn.close();
+    }
+  }
+
+  /// Insert or update (upsert) a review. The DB UNIQUE constraint on
+  /// (user_id, business_id) prevents duplicates at the DB level too.
+  static Future<void> upsertReview({
+    required int userId,
+    required int businessId,
+    required int rank,
+    required String comments,
+  }) async {
+    final conn = await _connect();
+    try {
+      // Check if review already exists
+      final existing = await conn.execute(
+        Sql.named(
+            'SELECT review_id FROM reviews WHERE user_id=@uid AND business_id=@bid'),
+        parameters: {'uid': userId, 'bid': businessId},
+      );
+      if (existing.isEmpty) {
+        await conn.execute(
+          Sql.named(
+              'INSERT INTO reviews (user_id,business_id,rank,comments,is_approved,time) VALUES (@uid,@bid,@rank,@comments,FALSE,NOW())'),
+          parameters: {
+            'uid': userId,
+            'bid': businessId,
+            'rank': rank,
+            'comments': comments,
+          },
+        );
+      } else {
+        await conn.execute(
+          Sql.named(
+              'UPDATE reviews SET rank=@rank,comments=@comments,time=NOW(),is_approved=FALSE WHERE user_id=@uid AND business_id=@bid'),
+          parameters: {
+            'uid': userId,
+            'bid': businessId,
+            'rank': rank,
+            'comments': comments,
+          },
+        );
+      }
+    } catch (e) {
+      throw 'Failed to save review: $e';
+    } finally {
+      await conn.close();
+    }
+  }
+
+  static Future<void> deleteReview(int reviewId) async {
+    final conn = await _connect();
+    try {
+      await conn.execute(
+        Sql.named('DELETE FROM reviews WHERE review_id=@id'),
+        parameters: {'id': reviewId},
+      );
+    } catch (e) {
+      throw 'Failed to delete review: $e';
+    } finally {
+      await conn.close();
+    }
+  }
+
+  // ─── USER: OFFERS ─────────────────────────────────────────────────────────
+
+  /// Creates an offer and optionally links it to an existing or new chat.
+  static Future<void> createOffer({
+    required int userId,
+    required int businessId,
+    required int productId,
+    required double offeredPrice,
+    String note = '',
+  }) async {
+    final conn = await _connect();
+    try {
+      // Find or create chat
+      final chatCheck = await conn.execute(
+        Sql.named(
+            'SELECT id FROM chats WHERE business_id=@bid AND user_id=@uid'),
+        parameters: {'bid': businessId, 'uid': userId},
+      );
+      int chatId;
+      if (chatCheck.isNotEmpty) {
+        chatId = chatCheck.first[0] as int;
+      } else {
+        final inserted = await conn.execute(
+          Sql.named(
+              'INSERT INTO chats (business_id,user_id,created_at) VALUES (@bid,@uid,NOW()) RETURNING id'),
+          parameters: {'bid': businessId, 'uid': userId},
+        );
+        chatId = inserted.first[0] as int;
+      }
+      // Insert offer
+      await conn.execute(
+        Sql.named(
+            'INSERT INTO offers (business_id,user_id,chat_id,product_id,offered_price,note,status,created_time) VALUES (@bid,@uid,@cid,@pid,@price,@note,\'pending\',NOW())'),
+        parameters: {
+          'bid': businessId,
+          'uid': userId,
+          'cid': chatId,
+          'pid': productId,
+          'price': offeredPrice,
+          'note': note,
+        },
+      );
+      // Send offer summary as a chat message so the owner sees it
+      await conn.execute(
+        Sql.named(
+            "INSERT INTO messages (chat_id,user_id,content,sender_type,created_at,is_read) VALUES (@cid,@uid,@msg,'user',NOW(),FALSE)"),
+        parameters: {
+          'cid': chatId,
+          'uid': userId,
+          'msg': note.isNotEmpty
+              ? '💬 Offer: ₺${offeredPrice.toStringAsFixed(2)} — $note'
+              : '💬 Offer: ₺${offeredPrice.toStringAsFixed(2)}',
+        },
+      );
+    } catch (e) {
+      throw 'Failed to create offer: $e';
+    } finally {
+      await conn.close();
+    }
+  }
+
+  // ─── USER: CHAT ───────────────────────────────────────────────────────────
+
+  /// Returns existing chat id for (user, business) or creates one.
+  static Future<int> getOrCreateChat(int userId, int businessId) async {
+    final conn = await _connect();
+    try {
+      final check = await conn.execute(
+        Sql.named(
+            'SELECT id FROM chats WHERE business_id=@bid AND user_id=@uid'),
+        parameters: {'bid': businessId, 'uid': userId},
+      );
+      if (check.isNotEmpty) return check.first[0] as int;
+      final inserted = await conn.execute(
+        Sql.named(
+            'INSERT INTO chats (business_id,user_id,created_at) VALUES (@bid,@uid,NOW()) RETURNING id'),
+        parameters: {'bid': businessId, 'uid': userId},
+      );
+      return inserted.first[0] as int;
+    } catch (e) {
+      throw 'Failed to get/create chat: $e';
+    } finally {
+      await conn.close();
+    }
+  }
+
+  static Future<void> sendUserMessage(
+      int chatId, int userId, String content) async {
+    final conn = await _connect();
+    try {
+      await conn.execute(
+        Sql.named(
+            "INSERT INTO messages (chat_id,user_id,content,sender_type,created_at,is_read) VALUES (@cid,@uid,@content,'user',NOW(),FALSE)"),
+        parameters: {'cid': chatId, 'uid': userId, 'content': content},
+      );
+    } catch (e) {
+      throw 'Failed to send: $e';
+    } finally {
+      await conn.close();
+    }
+  }
+
+  static Future<void> markOwnerMessagesRead(int chatId) async {
+    final conn = await _connect();
+    try {
+      await conn.execute(
+        Sql.named(
+            "UPDATE messages SET is_read=TRUE WHERE chat_id=@cid AND sender_type='owner'"),
+        parameters: {'cid': chatId},
+      );
+    } catch (e) {
+      /* silent */
+    } finally {
+      await conn.close();
+    }
+  }
+
+  // ─── USER: PRODUCT NEGOTIABILITY ──────────────────────────────────────────
+
+  /// Returns true if the product has a negotiable price entry in product_prices.
+  static Future<bool> isProductNegotiable(int productId) async {
+    final conn = await _connect();
+    try {
+      final result = await conn.execute(
+        Sql.named(
+            'SELECT 1 FROM product_prices WHERE product_id=@pid AND is_negotiable=TRUE'),
+        parameters: {'pid': productId},
+      );
+      return result.isNotEmpty;
+    } catch (e) {
+      return false;
+    } finally {
+      await conn.close();
+    }
+  }
 }
