@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'login_page.dart';
+import 'business_login_page.dart';
+import 'landing_page.dart';
 
 void main() {
   runApp(const PricelyApp());
@@ -18,8 +20,11 @@ class PricelyApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'Roboto',
       ),
-      routes: {'/login': (_) => const LoginPage()},
-      home: const LoginPage(),
+      routes: {
+        '/login': (_) => const LoginPage(),
+        '/business-login': (_) => const BusinessLoginPage(),
+      },
+      home: const LandingPage(),
     );
   }
 }
