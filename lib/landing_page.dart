@@ -1,10 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'login_page.dart';
 import 'business_login_page.dart';
-
-// ─── Entry point ─────────────────────────────────────────────────────────────
-// Call LandingPage() as the home widget in your MaterialApp.
-// ─────────────────────────────────────────────────────────────────────────────
 
 class LandingPage extends StatefulWidget {
   const LandingPage({super.key});
@@ -14,124 +11,166 @@ class LandingPage extends StatefulWidget {
 }
 
 class _LandingPageState extends State<LandingPage>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double> _heroFade;
-  late final Animation<Offset> _heroSlide;
-  late final Animation<double> _featureFade;
-  late final Animation<double> _ctaFade;
+    with TickerProviderStateMixin {
+  late final AnimationController _heroController;
+  late final AnimationController _floatingController;
+  late final Animation<double> _fadeAnim;
+  late final Animation<Offset> _slideAnim;
+
+  final ScrollController _scrollController = ScrollController();
+  bool _isScrolled = false;
+
+  final TextEditingController _searchController = TextEditingController();
+
+  final List<String> _placeholderTexts = [
+    'Search for haircut, manicure, gym, tattoo...',
+    'Find the best nail salon near you...',
+    'Book a skin care appointment today...',
+    'Explore gyms, clinics, cafes and more...',
+  ];
+
+  int _placeholderIndex = 0;
+  Timer? _placeholderTimer;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1400));
 
-    _heroFade = CurvedAnimation(
-        parent: _ctrl, curve: const Interval(0.0, 0.5, curve: Curves.easeOut));
-    _heroSlide = Tween<Offset>(begin: const Offset(0, 0.18), end: Offset.zero)
-        .animate(CurvedAnimation(
-            parent: _ctrl,
-            curve: const Interval(0.0, 0.55, curve: Curves.easeOut)));
-    _featureFade = CurvedAnimation(
-        parent: _ctrl, curve: const Interval(0.4, 0.8, curve: Curves.easeOut));
-    _ctaFade = CurvedAnimation(
-        parent: _ctrl, curve: const Interval(0.7, 1.0, curve: Curves.easeOut));
+    _heroController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    );
 
-    _ctrl.forward();
+    _floatingController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat(reverse: true);
+
+    _fadeAnim = CurvedAnimation(
+      parent: _heroController,
+      curve: Curves.easeOut,
+    );
+
+    _slideAnim = Tween<Offset>(
+      begin: const Offset(0, 0.08),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _heroController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    _heroController.forward();
+
+    _scrollController.addListener(() {
+      final scrolled = _scrollController.offset > 12;
+      if (scrolled != _isScrolled) {
+        setState(() => _isScrolled = scrolled);
+      }
+    });
+
+    _placeholderTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted) return;
+      setState(() {
+        _placeholderIndex = (_placeholderIndex + 1) % _placeholderTexts.length;
+      });
+    });
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _heroController.dispose();
+    _floatingController.dispose();
+    _scrollController.dispose();
+    _searchController.dispose();
+    _placeholderTimer?.cancel();
     super.dispose();
   }
 
-  void _goLogin() => Navigator.push(
-      context, MaterialPageRoute(builder: (_) => const LoginPage()));
-
-  void _goSignUp() => Navigator.push(
+  void _goUserLogin() {
+    Navigator.push(
       context,
-      MaterialPageRoute(
-          builder: (_) => const LoginPage())); // opens on Sign Up tab
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+    );
+  }
 
-  void _goBusinessLogin() => Navigator.push(
-      context, MaterialPageRoute(builder: (_) => const BusinessLoginPage()));
+  void _goUserSignup() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginPage(initialTab: 1)),
+    );
+  }
+
+  void _goBusinessLogin() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const BusinessLoginPage()),
+    );
+  }
+
+  void _fillSearch(String text) {
+    setState(() {
+      _searchController.text = text;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _LandingTheme.bg,
+      backgroundColor: const Color(0xFFF7F4F1),
       body: Stack(
         children: [
-          // ── Decorative blobs ─────────────────────────────────────────────
-          const _BackgroundDecor(),
-
+          const _LandingBackground(),
           SafeArea(
             child: Column(
               children: [
-                // ── App Bar ────────────────────────────────────────────────
-                _LandingAppBar(
-                  onLogin: _goLogin,
-                  onSignUp: _goSignUp,
-                  onBusiness: _goBusinessLogin,
+                _LandingTopBar(
+                  isScrolled: _isScrolled,
+                  onUserLogin: _goUserLogin,
+                  onUserSignup: _goUserSignup,
+                  onBusinessLogin: _goBusinessLogin,
                 ),
-
-                // ── Scrollable body ────────────────────────────────────────
                 Expanded(
                   child: SingleChildScrollView(
+                    controller: _scrollController,
                     physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const SizedBox(height: 32),
-
-                        // Hero
+                        const SizedBox(height: 18),
                         FadeTransition(
-                          opacity: _heroFade,
+                          opacity: _fadeAnim,
                           child: SlideTransition(
-                            position: _heroSlide,
-                            child: const _HeroSection(),
+                            position: _slideAnim,
+                            child: _HeroSection(
+                              floatingController: _floatingController,
+                              searchController: _searchController,
+                              placeholder: _placeholderTexts[_placeholderIndex],
+                              onSearchTap: _goUserLogin,
+                              onBusinessTap: _goBusinessLogin,
+                              onQuickFill: _fillSearch,
+                            ),
                           ),
                         ),
-
-                        const SizedBox(height: 48),
-
-                        // Features
-                        FadeTransition(
-                          opacity: _featureFade,
-                          child: const _FeaturesSection(),
+                        const SizedBox(height: 28),
+                        const _SplitCardsSection(),
+                        const SizedBox(height: 28),
+                        const _HowItWorksSection(),
+                        const SizedBox(height: 28),
+                        const _CategoriesSection(),
+                        const SizedBox(height: 28),
+                        const _FeaturesSection(),
+                        const SizedBox(height: 28),
+                        _BusinessSection(onBusinessTap: _goBusinessLogin),
+                        const SizedBox(height: 28),
+                        _AdsSection(onBusinessTap: _goBusinessLogin),
+                        const SizedBox(height: 28),
+                        _BottomCtaSection(
+                          onUserTap: _goUserSignup,
+                          onBusinessTap: _goBusinessLogin,
                         ),
-
-                        const SizedBox(height: 48),
-
-                        // How it works
-                        FadeTransition(
-                          opacity: _featureFade,
-                          child: const _HowItWorksSection(),
-                        ),
-
-                        const SizedBox(height: 48),
-
-                        // CTA
-                        FadeTransition(
-                          opacity: _ctaFade,
-                          child: _CtaSection(
-                            onSignUp: _goSignUp,
-                            onBusiness: _goBusinessLogin,
-                          ),
-                        ),
-
-                        const SizedBox(height: 48),
-
-                        // Footer
-                        FadeTransition(
-                          opacity: _ctaFade,
-                          child: const _Footer(),
-                        ),
-
-                        const SizedBox(height: 32),
+                        const SizedBox(height: 28),
+                        const _FooterSection(),
+                        const SizedBox(height: 24),
                       ],
                     ),
                   ),
@@ -145,755 +184,1715 @@ class _LandingPageState extends State<LandingPage>
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// THEME  constants
-// ═════════════════════════════════════════════════════════════════════════════
+class _LandingTopBar extends StatelessWidget {
+  final bool isScrolled;
+  final VoidCallback onUserLogin;
+  final VoidCallback onUserSignup;
+  final VoidCallback onBusinessLogin;
 
-abstract class _LandingTheme {
-  static const bg = Color(0xFFF4F7FF);
-  static const blue = Color(0xFF1A73E8);
-  static const blueDark = Color(0xFF0D47A1);
-  static const accent = Color(0xFF00C9A7); // teal-green accent
-  static const textDark = Color(0xFF0D1B3E);
-  static const textMid = Color(0xFF4A5568);
-  static const textLight = Color(0xFF8A97B0);
-  static const card = Colors.white;
-
-  static const gradient = LinearGradient(
-    colors: [blue, blueDark],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  static const accentGradient = LinearGradient(
-    colors: [Color(0xFF00C9A7), Color(0xFF0094C6)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// BACKGROUND DECORATIONS
-// ═════════════════════════════════════════════════════════════════════════════
-
-class _BackgroundDecor extends StatelessWidget {
-  const _BackgroundDecor();
+  const _LandingTopBar({
+    required this.isScrolled,
+    required this.onUserLogin,
+    required this.onUserSignup,
+    required this.onBusinessLogin,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final w = MediaQuery.of(context).size.width;
-    return Stack(children: [
-      // Top-right blob
-      Positioned(
-        top: -80,
-        right: -80,
-        child: Container(
-          width: w * 0.7,
-          height: w * 0.7,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(colors: [
-              const Color(0xFF1A73E8).withOpacity(0.08),
-              Colors.transparent,
-            ]),
-          ),
-        ),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      margin: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: isScrolled
+            ? const Color(0xFFF7F4F1).withOpacity(0.95)
+            : const Color(0xFFF7F4F1).withOpacity(0.82),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE7DDD7)),
+        boxShadow: isScrolled
+            ? [
+                BoxShadow(
+                  color: const Color(0xFF2B0D1A).withOpacity(0.06),
+                  blurRadius: 22,
+                  offset: const Offset(0, 8),
+                )
+              ]
+            : [],
       ),
-      // Bottom-left blob
-      Positioned(
-        bottom: 60,
-        left: -60,
-        child: Container(
-          width: w * 0.55,
-          height: w * 0.55,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(colors: [
-              const Color(0xFF00C9A7).withOpacity(0.07),
-              Colors.transparent,
-            ]),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF4A0019), Color(0xFF8A3E5D)],
+              ),
+            ),
+            child: const Center(
+              child: Text(
+                'p',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
           ),
-        ),
-      ),
-    ]);
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// APP BAR
-// ═════════════════════════════════════════════════════════════════════════════
-
-class _LandingAppBar extends StatelessWidget {
-  final VoidCallback onLogin, onSignUp, onBusiness;
-  const _LandingAppBar(
-      {required this.onLogin,
-      required this.onSignUp,
-      required this.onBusiness});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: Row(children: [
-        const Text('PRICELY',
+          const SizedBox(width: 12),
+          const Text(
+            'Pricely',
             style: TextStyle(
-                color: _LandingTheme.textDark,
-                fontWeight: FontWeight.w900,
-                fontSize: 18,
-                letterSpacing: 2.5)),
-        const Spacer(),
-
-        // Business login (subtle)
-        TextButton(
-          onPressed: onBusiness,
-          style: TextButton.styleFrom(
-            foregroundColor: _LandingTheme.textMid,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            textStyle: const TextStyle(fontSize: 12),
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF2A1019),
+            ),
           ),
-          child: const Text('For Business'),
-        ),
-        const SizedBox(width: 4),
-
-        // Login
-        TextButton(
-          onPressed: onLogin,
-          style: TextButton.styleFrom(
-            foregroundColor: _LandingTheme.blue,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          const Spacer(),
+          _TopButton(
+            label: 'User Log in',
+            background: const Color(0xFFF0E7E3),
+            textColor: const Color(0xFF2A1019),
+            onTap: onUserLogin,
           ),
-          child: const Text('Login',
-              style: TextStyle(fontWeight: FontWeight.w600)),
-        ),
-        const SizedBox(width: 6),
-
-        // Sign Up
-        ElevatedButton(
-          onPressed: onSignUp,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _LandingTheme.blue,
-            foregroundColor: Colors.white,
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          const SizedBox(width: 10),
+          _TopButton(
+            label: 'User Sign up',
+            background: const Color(0xFFEFE76E),
+            textColor: const Color(0xFF2A1019),
+            onTap: onUserSignup,
           ),
-          child: const Text('Sign Up',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-        ),
-      ]),
+          const SizedBox(width: 10),
+          _TopButton(
+            label: 'Business Log in',
+            background: const Color(0xFF2A1019),
+            textColor: Colors.white,
+            onTap: onBusinessLogin,
+          ),
+        ],
+      ),
     );
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// HERO SECTION
-// ═════════════════════════════════════════════════════════════════════════════
+class _TopButton extends StatelessWidget {
+  final String label;
+  final Color background;
+  final Color textColor;
+  final VoidCallback onTap;
+
+  const _TopButton({
+    required this.label,
+    required this.background,
+    required this.textColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: background,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: textColor,
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _HeroSection extends StatelessWidget {
-  const _HeroSection();
+  final AnimationController floatingController;
+  final TextEditingController searchController;
+  final String placeholder;
+  final VoidCallback onSearchTap;
+  final VoidCallback onBusinessTap;
+  final ValueChanged<String> onQuickFill;
+
+  const _HeroSection({
+    required this.floatingController,
+    required this.searchController,
+    required this.placeholder,
+    required this.onSearchTap,
+    required this.onBusinessTap,
+    required this.onQuickFill,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Column(children: [
-      const SizedBox(height: 24),
-
-      // Title
-      RichText(
-        textAlign: TextAlign.center,
-        text: const TextSpan(
-          style: TextStyle(
-              color: _LandingTheme.textDark,
-              fontSize: 34,
-              fontWeight: FontWeight.w900,
-              height: 1.15,
-              letterSpacing: -0.5),
-          children: [
-            TextSpan(text: 'Find Local Businesses\n'),
-            TextSpan(text: '& Compare '),
-            TextSpan(
-              text: 'Prices',
-              style: TextStyle(color: _LandingTheme.blue),
-            ),
-            TextSpan(text: ' Instantly'),
-          ],
-        ),
-      ),
-
-      const SizedBox(height: 18),
-
-      // Sub-heading
-      const Text(
-        'Pricely connects you with nearby shops,\nrestaurants, and services — so you always\nknow what to expect before you walk in.',
-        textAlign: TextAlign.center,
-        style:
-            TextStyle(fontSize: 15, color: _LandingTheme.textMid, height: 1.65),
-      ),
-
-      const SizedBox(height: 32),
-
-      // Hero illustration card
-      Container(
-        height: 200,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF1A73E8), Color(0xFF0D47A1)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF1A73E8).withOpacity(0.35),
-              blurRadius: 28,
-              offset: const Offset(0, 12),
-            )
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: Stack(children: [
-            // Grid pattern overlay
-            CustomPaint(
-              painter: _GridPainter(),
-              child: const SizedBox.expand(),
-            ),
-            // Centered content
-            Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.storefront_rounded,
-                    color: Colors.white, size: 52),
-                const SizedBox(height: 12),
-                const Text('500+ Local Businesses',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.3)),
-                const SizedBox(height: 6),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.18),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text('In your neighbourhood',
-                      style: TextStyle(color: Colors.white70, fontSize: 12)),
-                ),
-              ]),
-            ),
-            // Floating stat pills
-            Positioned(
-              top: 20,
-              right: 20,
-              child: _FloatingPill(
-                  icon: Icons.star_rounded,
-                  label: '4.8 Avg',
-                  color: const Color(0xFFFFC107)),
-            ),
-          ]),
-        ),
-      ),
-    ]);
-  }
-}
-
-class _FloatingPill extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  const _FloatingPill(
-      {required this.icon, required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withOpacity(0.12),
-                blurRadius: 8,
-                offset: const Offset(0, 3))
-          ],
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, color: color, size: 15),
-          const SizedBox(width: 5),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w700, color: color)),
-        ]),
-      );
-}
-
-// Subtle dot-grid background painter
-class _GridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withOpacity(0.07)
-      ..strokeWidth = 1;
-    const step = 28.0;
-    for (double x = 0; x < size.width; x += step) {
-      for (double y = 0; y < size.height; y += step) {
-        canvas.drawCircle(Offset(x, y), 1.5, paint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_) => false;
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// FEATURES SECTION
-// ═════════════════════════════════════════════════════════════════════════════
-
-class _FeaturesSection extends StatelessWidget {
-  const _FeaturesSection();
-
-  static const _features = [
-    _FeatureData(
-      icon: Icons.search_rounded,
-      color: Color(0xFF1A73E8),
-      title: 'Browse & Discover',
-      body:
-          'Explore hundreds of local shops, salons, cafes, and more — all in one place.',
-    ),
-    _FeatureData(
-      icon: Icons.price_check_rounded,
-      color: Color(0xFF00C9A7),
-      title: 'Transparent Prices',
-      body:
-          'See real product and service prices upfront. No surprises when you arrive.',
-    ),
-    _FeatureData(
-      icon: Icons.handshake_rounded,
-      color: Color(0xFFFF6D00),
-      title: 'Negotiate & Book',
-      body:
-          'Send price offers directly to businesses and book appointments in-app.',
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _SectionLabel(label: 'WHY PRICELY'),
-      const SizedBox(height: 8),
-      const Text('Everything you need\nto shop smarter',
-          style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: _LandingTheme.textDark,
-              height: 1.2)),
-      const SizedBox(height: 24),
-      ..._features.map((f) => _FeatureCard(data: f)),
-    ]);
-  }
-}
-
-class _FeatureData {
-  final IconData icon;
-  final Color color;
-  final String title, body;
-  const _FeatureData(
-      {required this.icon,
-      required this.color,
-      required this.title,
-      required this.body});
-}
-
-class _FeatureCard extends StatelessWidget {
-  final _FeatureData data;
-  const _FeatureCard({required this.data});
-
-  @override
-  Widget build(BuildContext context) => Container(
-        margin: const EdgeInsets.only(bottom: 14),
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: _LandingTheme.card,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 14,
-                offset: const Offset(0, 4))
-          ],
-        ),
-        child: Row(children: [
-          Container(
-            width: 52,
-            height: 52,
+    return Row(
+      children: [
+        Expanded(
+          flex: 11,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 690),
+            padding: const EdgeInsets.all(40),
             decoration: BoxDecoration(
-              color: data.color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(14),
+              color: const Color(0xFFF8F2ED),
+              borderRadius: BorderRadius.circular(36),
+              border: Border.all(color: const Color(0xFFE7DDD7)),
             ),
-            child: Icon(data.icon, color: data.color, size: 26),
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                const Text(
+                  '⌘',
+                  style: TextStyle(
+                    fontSize: 68,
+                    color: Color(0xFF3A0517),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Search',
+                      style: TextStyle(
+                        fontSize: 42,
+                        fontStyle: FontStyle.italic,
+                        color: Color(0xFFD4C5CB),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    SizedBox(width: 38),
+                    Text(
+                      'Book',
+                      style: TextStyle(
+                        fontSize: 48,
+                        fontStyle: FontStyle.italic,
+                        color: Color(0xFF3A0517),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(width: 38),
+                    Text(
+                      'Grow',
+                      style: TextStyle(
+                        fontSize: 42,
+                        fontStyle: FontStyle.italic,
+                        color: Color(0xFFD4C5CB),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Book local\nservices with',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 64,
+                    height: 0.95,
+                    letterSpacing: -2.4,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF2F0715),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'ease',
+                  style: TextStyle(
+                    fontSize: 54,
+                    height: 1,
+                    letterSpacing: -1.8,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFFE8DFDE),
+                  ),
+                ),
+                const SizedBox(height: 26),
+                const Text(
+                  'Find trusted businesses, compare services, choose\nstaff and book instantly.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 18,
+                    height: 1.6,
+                    color: Color(0xFF6C5560),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 34),
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.75),
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(color: const Color(0xFFE8D8D0)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF3A0517).withOpacity(0.04),
+                        blurRadius: 18,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                              color: const Color(0xFFDDBFC9), width: 2),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.search,
+                                color: Color(0xFF8D707D), size: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextField(
+                                controller: searchController,
+                                decoration: InputDecoration(
+                                  hintText: placeholder,
+                                  border: InputBorder.none,
+                                  hintStyle: const TextStyle(
+                                    color: Color(0xFF8B727D),
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                style: const TextStyle(
+                                  color: Color(0xFF42212E),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            InkWell(
+                              onTap: onSearchTap,
+                              borderRadius: BorderRadius.circular(18),
+                              child: Container(
+                                width: 56,
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFD8C6CE),
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: const Icon(Icons.arrow_upward,
+                                    color: Colors.white),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          _PromptTag(
+                            label: 'Look up',
+                            onTap: () => onQuickFill('Haircut near me'),
+                          ),
+                          _PromptTag(
+                            label: 'Compare',
+                            onTap: () =>
+                                onQuickFill('Best nail salon in İzmir'),
+                          ),
+                          _PromptTag(
+                            label: 'Book',
+                            onTap: () =>
+                                onQuickFill('Book skin care appointment'),
+                          ),
+                          _PromptTag(
+                            label: 'Explore',
+                            onTap: () => onQuickFill('Find gym with trainer'),
+                          ),
+                          _PromptTag(
+                            label: 'Try this',
+                            onTap: () =>
+                                onQuickFill('Tattoo studio open today'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 28),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _HeroActionButton(
+                      label: 'Get started',
+                      background: const Color(0xFFEFE76E),
+                      textColor: const Color(0xFF2A1019),
+                      onTap: onSearchTap,
+                    ),
+                    const SizedBox(width: 14),
+                    _HeroActionButton(
+                      label: 'Business portal',
+                      background: const Color(0xFF2A1019),
+                      textColor: Colors.white,
+                      onTap: onBusinessTap,
+                    ),
+                  ],
+                )
+              ],
+            ),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(data.title,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15,
-                      color: _LandingTheme.textDark)),
-              const SizedBox(height: 4),
-              Text(data.body,
-                  style: const TextStyle(
-                      fontSize: 13, color: _LandingTheme.textMid, height: 1.5)),
-            ]),
+        ),
+        const SizedBox(width: 24),
+        Expanded(
+          flex: 9,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 690),
+            padding: const EdgeInsets.all(26),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3ECE6),
+              borderRadius: BorderRadius.circular(36),
+              border: Border.all(color: const Color(0xFFE7DDD7)),
+            ),
+            child: Stack(
+              children: [
+                AnimatedBuilder(
+                  animation: floatingController,
+                  builder: (context, child) {
+                    final y = (floatingController.value - 0.5) * 10;
+                    return Positioned(
+                      top: 8 + y,
+                      right: 0,
+                      child: const _FloatingBadge(
+                        icon: '⚡',
+                        text: 'Instant Booking',
+                      ),
+                    );
+                  },
+                ),
+                AnimatedBuilder(
+                  animation: floatingController,
+                  builder: (context, child) {
+                    final y = (floatingController.value - 0.5) * -10;
+                    return Positioned(
+                      top: 120 + y,
+                      left: 0,
+                      child: const _FloatingBadge(
+                        icon: '✔',
+                        text: 'Verified Businesses',
+                      ),
+                    );
+                  },
+                ),
+                AnimatedBuilder(
+                  animation: floatingController,
+                  builder: (context, child) {
+                    final y = (floatingController.value - 0.5) * 8;
+                    return Positioned(
+                      bottom: 12 + y,
+                      right: 12,
+                      child: const _FloatingBadge(
+                        icon: '🔥',
+                        text: 'Offers & Promotions',
+                      ),
+                    );
+                  },
+                ),
+                Center(
+                  child: Container(
+                    width: 360,
+                    height: 620,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF121212),
+                      borderRadius: BorderRadius.circular(42),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.18),
+                          blurRadius: 36,
+                          offset: const Offset(0, 18),
+                        )
+                      ],
+                    ),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(22),
+                            decoration: const BoxDecoration(
+                              borderRadius: BorderRadius.vertical(
+                                top: Radius.circular(30),
+                              ),
+                              gradient: LinearGradient(
+                                colors: [Color(0xFF4A0019), Color(0xFF7C3B56)],
+                              ),
+                            ),
+                            child: const Text(
+                              'Book your next appointment',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.all(22),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Glow Beauty Center',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF1E1E1E),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEFF7EF),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: const Text(
+                                    '4.9 rating • 1.2k reviews',
+                                    style: TextStyle(
+                                      color: Color(0xFF28774B),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 18),
+                                const _PhoneServiceItem(
+                                  title: 'Haircut & styling',
+                                  subtitle: '45 min • Instant confirmation',
+                                  price: '₺450',
+                                ),
+                                const _PhoneServiceItem(
+                                  title: 'Gel manicure',
+                                  subtitle: '60 min • Staff selection',
+                                  price: '₺600',
+                                ),
+                                const _PhoneServiceItem(
+                                  title: 'Skin care session',
+                                  subtitle: '90 min • Deposit required',
+                                  price: '₺850',
+                                ),
+                                const _PhoneServiceItem(
+                                  title: 'Personal training',
+                                  subtitle: '50 min • Available today',
+                                  price: '₺700',
+                                ),
+                              ],
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ]),
-      );
+        ),
+      ],
+    );
+  }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// HOW IT WORKS SECTION
-// ═════════════════════════════════════════════════════════════════════════════
+class _PromptTag extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _PromptTag({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFFFFAF8),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE8D8D0)),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF6C5560),
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroActionButton extends StatelessWidget {
+  final String label;
+  final Color background;
+  final Color textColor;
+  final VoidCallback onTap;
+
+  const _HeroActionButton({
+    required this.label,
+    required this.background,
+    required this.textColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: background,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FloatingBadge extends StatelessWidget {
+  final String icon;
+  final String text;
+
+  const _FloatingBadge({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF2B0D1A).withOpacity(0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          )
+        ],
+      ),
+      child: Text(
+        '$icon $text',
+        style: const TextStyle(
+          color: Color(0xFF2A1019),
+          fontWeight: FontWeight.w800,
+          fontSize: 14,
+        ),
+      ),
+    );
+  }
+}
+
+class _PhoneServiceItem extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String price;
+
+  const _PhoneServiceItem({
+    required this.title,
+    required this.subtitle,
+    required this.price,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFEDEDED)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    color: Color(0xFF1D1D1D),
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: Color(0xFF7A7A7A),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                )
+              ],
+            ),
+          ),
+          Text(
+            price,
+            style: const TextStyle(
+              fontWeight: FontWeight.w900,
+              fontSize: 16,
+              color: Color(0xFF111111),
+            ),
+          )
+        ],
+      ),
+    );
+  }
+}
+
+class _SplitCardsSection extends StatelessWidget {
+  const _SplitCardsSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: const [
+        Expanded(
+          child: _InfoCard(
+            background: Color(0xFFEFE8EC),
+            borderColor: Color(0xFFDFD0D7),
+            title: 'For Customers',
+            desc:
+                'Search businesses, compare services, choose staff, see availability and book without calling.',
+            bullets: [
+              'Discover trusted local businesses',
+              'Compare services, reviews and prices',
+              'Choose the right staff member',
+              'Book instantly in a few clicks',
+            ],
+          ),
+        ),
+        SizedBox(width: 18),
+        Expanded(
+          child: _InfoCard(
+            background: Color(0xFFF6F0D8),
+            borderColor: Color(0xFFECE1A9),
+            title: 'For Businesses',
+            desc:
+                'Manage services, staff and working hours. Receive bookings, promote your business and grow faster.',
+            bullets: [
+              'Add products and bookable services',
+              'Manage staff and availability',
+              'Receive offers and customer messages',
+              'Boost visibility with advertising packages',
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoCard extends StatelessWidget {
+  final Color background;
+  final Color borderColor;
+  final String title;
+  final String desc;
+  final List<String> bullets;
+
+  const _InfoCard({
+    required this.background,
+    required this.borderColor,
+    required this.title,
+    required this.desc,
+    required this.bullets,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: const TextStyle(
+                  fontSize: 34,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF2D0C18))),
+          const SizedBox(height: 12),
+          Text(
+            desc,
+            style: const TextStyle(
+              color: Color(0xFF584851),
+              height: 1.7,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 18),
+          ...bullets.map(
+            (e) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                '• $e',
+                style: const TextStyle(
+                  color: Color(0xFF24151B),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _HowItWorksSection extends StatelessWidget {
   const _HowItWorksSection();
 
-  static const _steps = [
-    _StepData(
-        number: '01',
-        title: 'Create your account',
-        body:
-            'Sign up in under a minute — just your name, email, and password.',
-        icon: Icons.person_add_alt_1_rounded),
-    _StepData(
-        number: '02',
-        title: 'Browse nearby businesses',
-        body: 'Filter by category, check photos, prices, and reviews.',
-        icon: Icons.map_rounded),
-    _StepData(
-        number: '03',
-        title: 'Offer, book, or message',
-        body:
-            'Negotiate prices, book appointments, or chat directly with the business.',
-        icon: Icons.chat_bubble_rounded),
-  ];
-
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF0D47A1), Color(0xFF1565C0)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-                color: const Color(0xFF1A73E8).withOpacity(0.3),
-                blurRadius: 24,
-                offset: const Offset(0, 10))
-          ],
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Text('HOW IT WORKS',
-                style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.5)),
-          ),
-          const SizedBox(height: 14),
-          const Text('Get started in\n3 simple steps',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  height: 1.2)),
-          const SizedBox(height: 28),
-          ..._steps.asMap().entries.map((e) =>
-              _StepRow(data: e.value, isLast: e.key == _steps.length - 1)),
-        ]),
-      );
-}
-
-class _StepData {
-  final String number, title, body;
-  final IconData icon;
-  const _StepData(
-      {required this.number,
-      required this.title,
-      required this.body,
-      required this.icon});
-}
-
-class _StepRow extends StatelessWidget {
-  final _StepData data;
-  final bool isLast;
-  const _StepRow({required this.data, required this.isLast});
-
-  @override
-  Widget build(BuildContext context) => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Column(children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Center(
-                  child: Text(data.number,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 13))),
-            ),
-            if (!isLast)
-              Container(
-                width: 2,
-                height: 32,
-                margin: const EdgeInsets.symmetric(vertical: 4),
-                color: Colors.white.withOpacity(0.15),
-              ),
-          ]),
-          const SizedBox(width: 16),
+  Widget build(BuildContext context) {
+    return _SectionFrame(
+      title: 'How it works',
+      subtitle: 'Simple for customers, powerful for businesses.',
+      child: Row(
+        children: const [
           Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(bottom: isLast ? 0 : 24),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(data.title,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15)),
-                    const SizedBox(height: 4),
-                    Text(data.body,
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.72),
-                            fontSize: 13,
-                            height: 1.5)),
-                  ]),
+            child: _SimpleCard(
+              icon: '🔎',
+              title: 'Search',
+              body:
+                  'Find a service or business near you with a clean and quick discovery flow.',
+            ),
+          ),
+          SizedBox(width: 18),
+          Expanded(
+            child: _SimpleCard(
+              icon: '📋',
+              title: 'Choose',
+              body:
+                  'Compare services, staff, pricing, reviews and available booking times.',
+            ),
+          ),
+          SizedBox(width: 18),
+          Expanded(
+            child: _SimpleCard(
+              icon: '📅',
+              title: 'Book',
+              body:
+                  'Reserve your appointment in seconds and keep everything organized in one place.',
+            ),
+          ),
+          SizedBox(width: 18),
+          Expanded(
+            child: _SimpleCard(
+              icon: '🚀',
+              title: 'Grow',
+              body:
+                  'Businesses can manage operations and increase visibility with built-in promotion tools.',
             ),
           ),
         ],
-      );
+      ),
+    );
+  }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// STATS STRIP
-// ═════════════════════════════════════════════════════════════════════════════
-
-class _StatStrip extends StatelessWidget {
-  const _StatStrip();
+class _CategoriesSection extends StatelessWidget {
+  const _CategoriesSection();
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+  Widget build(BuildContext context) {
+    return _SectionFrame(
+      title: 'Popular categories',
+      subtitle:
+          'Designed for both everyday needs and appointment-based services.',
+      child: GridView.count(
+        crossAxisCount: 4,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        crossAxisSpacing: 18,
+        mainAxisSpacing: 18,
+        childAspectRatio: 1.15,
+        children: const [
+          _CategoryCard(
+              icon: '💇',
+              title: 'Hairdresser',
+              body: 'Haircuts, styling, coloring and care services.'),
+          _CategoryCard(
+              icon: '💅',
+              title: 'Nail Bar',
+              body: 'Manicure, pedicure and beauty care sessions.'),
+          _CategoryCard(
+              icon: '🏋️',
+              title: 'Gym',
+              body: 'Training sessions, memberships and wellness bookings.'),
+          _CategoryCard(
+              icon: '🩺',
+              title: 'Clinic',
+              body: 'Appointments, consultations and service scheduling.'),
+          _CategoryCard(
+              icon: '🛠️',
+              title: 'Repair',
+              body: 'Technical fixes, maintenance and service requests.'),
+          _CategoryCard(
+              icon: '☕',
+              title: 'Cafe',
+              body: 'Discover local spots, offers and popular places nearby.'),
+          _CategoryCard(
+              icon: '🍽️',
+              title: 'Restaurant',
+              body: 'Explore trending businesses and featured locations.'),
+          _CategoryCard(
+              icon: '🐾',
+              title: 'Pet Shop',
+              body: 'Pet care, services, supplies and specialized bookings.'),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeaturesSection extends StatelessWidget {
+  const _FeaturesSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionFrame(
+      title: 'Everything your users need',
+      subtitle: 'A booking experience that feels simple, modern and fast.',
+      child: Container(
+        padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
-          color: _LandingTheme.card,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 14,
-                offset: const Offset(0, 4))
+          color: const Color(0xFFF5ECE8),
+          borderRadius: BorderRadius.circular(38),
+          border: Border.all(color: const Color(0xFFEADAD2)),
+        ),
+        child: Row(
+          children: [
+            const Expanded(
+              child: Column(
+                children: [
+                  _FeatureBox(
+                    title: 'Real-time availability',
+                    body:
+                        'Customers can quickly see available times and choose what fits best.',
+                  ),
+                  SizedBox(height: 16),
+                  _FeatureBox(
+                    title: 'Staff selection',
+                    body:
+                        'Let users book the exact person they want for the service.',
+                  ),
+                  SizedBox(height: 16),
+                  _FeatureBox(
+                    title: 'Verified reviews',
+                    body:
+                        'Build trust with transparent feedback and visible customer experience.',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF111111),
+                  borderRadius: BorderRadius.circular(34),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: const Column(
+                    children: [
+                      _MiniFeatureTile(label: 'Upcoming appointment'),
+                      SizedBox(height: 12),
+                      _MiniFeatureTile(label: 'Choose staff member'),
+                      SizedBox(height: 12),
+                      _MiniFeatureTile(label: 'Best offers nearby'),
+                      SizedBox(height: 12),
+                      _MiniFeatureTile(label: 'Fast booking confirmation'),
+                      SizedBox(height: 12),
+                      _MiniFeatureTile(label: 'Message the business'),
+                      SizedBox(height: 12),
+                      _MiniFeatureTile(label: 'Easy reschedule flow'),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 18),
+            const Expanded(
+              child: Column(
+                children: [
+                  _FeatureBox(
+                    title: 'Offers & discounts',
+                    body:
+                        'Promote special deals and highlight attractive services.',
+                  ),
+                  SizedBox(height: 16),
+                  _FeatureBox(
+                    title: 'Messaging',
+                    body:
+                        'Allow direct communication between customers and businesses.',
+                  ),
+                  SizedBox(height: 16),
+                  _FeatureBox(
+                    title: 'Smart discovery',
+                    body:
+                        'Help users explore the right categories, businesses and services faster.',
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
-        child: Row(children: [
-          _stat('500+', 'Businesses'),
-          _divider(),
-          _stat('12K+', 'Users'),
-          _divider(),
-          _stat('4.8★', 'Rating'),
-        ]),
-      );
-
-  Widget _stat(String value, String label) => Expanded(
-        child: Column(children: [
-          Text(value,
-              style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 20,
-                  color: _LandingTheme.blue)),
-          const SizedBox(height: 3),
-          Text(label,
-              style: const TextStyle(
-                  fontSize: 11, color: _LandingTheme.textLight)),
-        ]),
-      );
-
-  Widget _divider() =>
-      Container(width: 1, height: 32, color: const Color(0xFFE2E8F0));
+      ),
+    );
+  }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// CTA SECTION
-// ═════════════════════════════════════════════════════════════════════════════
+class _BusinessSection extends StatelessWidget {
+  final VoidCallback onBusinessTap;
 
-class _CtaSection extends StatelessWidget {
-  final VoidCallback onSignUp, onBusiness;
-  const _CtaSection({required this.onSignUp, required this.onBusiness});
+  const _BusinessSection({required this.onBusinessTap});
 
   @override
-  Widget build(BuildContext context) => Column(children: [
-        // Stats first
-        const _StatStrip(),
-        const SizedBox(height: 32),
-
-        // CTA card
-        Container(
-          padding: const EdgeInsets.all(28),
-          decoration: BoxDecoration(
-            color: _LandingTheme.card,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 14,
-                  offset: const Offset(0, 4))
-            ],
-          ),
-          child: Column(children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                gradient: _LandingTheme.accentGradient,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(Icons.rocket_launch_rounded,
-                  color: Colors.white, size: 28),
-            ),
-            const SizedBox(height: 16),
-            const Text('Ready to explore?',
-                style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: _LandingTheme.textDark)),
-            const SizedBox(height: 8),
-            const Text(
-              'Join thousands of users discovering\nthe best local businesses today.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 14, color: _LandingTheme.textMid, height: 1.5),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: onSignUp,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _LandingTheme.blue,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-                child: const Text('Get Started — It\'s Free',
-                    style:
-                        TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: onBusiness,
-                icon: const Icon(Icons.business_center_outlined, size: 17),
-                label: const Text('Register Your Business'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: _LandingTheme.textDark,
-                  side: const BorderSide(color: Color(0xFFCBD5E0)),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
-            ),
-          ]),
-        ),
-      ]);
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// FOOTER
-// ═════════════════════════════════════════════════════════════════════════════
-
-class _Footer extends StatelessWidget {
-  const _Footer();
-
-  @override
-  Widget build(BuildContext context) => Column(children: [
-        const Divider(color: Color(0xFFE2E8F0)),
-        const SizedBox(height: 16),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              gradient: _LandingTheme.gradient,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: const Center(
-                child: Text('P',
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(34),
+      decoration: BoxDecoration(
+        color: const Color(0xFF250813),
+        borderRadius: BorderRadius.circular(42),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: Colors.white.withOpacity(0.08)),
+                  ),
+                  child: const Text(
+                    'Business management made simple',
                     style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 13))),
+                      color: Color(0xFFD7C8CF),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Everything businesses\nneed to grow.',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 42,
+                    height: 1.05,
+                    letterSpacing: -1.2,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Manage services, staff, working hours, incoming offers and customer communication from one dashboard.',
+                  style: TextStyle(
+                    color: Color(0xFFD9CDD1),
+                    height: 1.8,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                const _DarkListTile(text: 'Manage staff and assign services'),
+                const SizedBox(height: 10),
+                const _DarkListTile(
+                    text: 'Set business hours and availability'),
+                const SizedBox(height: 10),
+                const _DarkListTile(
+                    text: 'Receive bookings, messages and offers'),
+                const SizedBox(height: 10),
+                const _DarkListTile(
+                    text: 'Promote your business with featured advertising'),
+                const SizedBox(height: 22),
+                _HeroActionButton(
+                  label: 'Open business panel',
+                  background: const Color(0xFFEFE76E),
+                  textColor: const Color(0xFF2A1019),
+                  onTap: onBusinessTap,
+                ),
+              ],
+            ),
           ),
-          const SizedBox(width: 8),
-          const Text('PRICELY',
-              style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                  color: _LandingTheme.textDark,
-                  letterSpacing: 1.5)),
-        ]),
-        const SizedBox(height: 10),
-        const Text('© 2025 Pricely · All rights reserved',
-            style: TextStyle(fontSize: 11, color: _LandingTheme.textLight)),
-        const SizedBox(height: 4),
-        const Text('Connecting you with the best local businesses',
-            style: TextStyle(fontSize: 11, color: _LandingTheme.textLight)),
-      ]);
+          const SizedBox(width: 24),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1B0A11),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: Colors.white.withOpacity(0.06)),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Business Dashboard',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Spacer(),
+                      _PreviewPill(),
+                    ],
+                  ),
+                  SizedBox(height: 18),
+                  _PreviewItem(text: 'Manage products and bookable services'),
+                  _PreviewItem(
+                      text: 'Edit staff, roles and service assignments'),
+                  _PreviewItem(text: 'Set weekly working hours'),
+                  _PreviewItem(text: 'Reply to reviews and customer messages'),
+                  _PreviewItem(
+                      text: 'Buy Bronze / Silver / Gold visibility packages'),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// SHARED HELPERS
-// ═════════════════════════════════════════════════════════════════════════════
+class _AdsSection extends StatelessWidget {
+  final VoidCallback onBusinessTap;
 
-class _SectionLabel extends StatelessWidget {
-  final String label;
-  const _SectionLabel({required this.label});
+  const _AdsSection({required this.onBusinessTap});
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: _LandingTheme.blue.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(6),
+  Widget build(BuildContext context) {
+    return _SectionFrame(
+      title: 'Boost visibility with advertising',
+      subtitle:
+          'Simple packages for businesses that want more discovery, more traffic and more bookings.',
+      child: Row(
+        children: [
+          Expanded(
+            child: _AdCard(
+              title: 'Bronze',
+              price: '₺199',
+              background: const Color(0xFFFFF8F0),
+              textColor: const Color(0xFF1B1B1B),
+              borderColor: const Color(0xFFEFE2D4),
+              bullets: const [
+                'Featured on home',
+                'Better visibility for new customers',
+                'Entry-level promotion',
+              ],
+              buttonLabel: 'Get started',
+              onTap: onBusinessTap,
+              darkButton: true,
+            ),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: _AdCard(
+              title: 'Silver',
+              price: '₺399',
+              background: const Color(0xFFF5F1EE),
+              textColor: const Color(0xFF1B1B1B),
+              borderColor: const Color(0xFFE8E1D7),
+              bullets: const [
+                'Featured on home',
+                'Boosted in search results',
+                'Great for category discovery',
+              ],
+              buttonLabel: 'Choose silver',
+              onTap: onBusinessTap,
+              darkButton: true,
+            ),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: _AdCard(
+              title: 'Gold',
+              price: '₺699',
+              background: const Color(0xFF12070B),
+              textColor: Colors.white,
+              borderColor: const Color(0xFF24141A),
+              bullets: const [
+                'Featured on home',
+                'Boosted in search results',
+                'Highlighted on map',
+              ],
+              buttonLabel: 'Choose gold',
+              onTap: onBusinessTap,
+              darkButton: false,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BottomCtaSection extends StatelessWidget {
+  final VoidCallback onUserTap;
+  final VoidCallback onBusinessTap;
+
+  const _BottomCtaSection({
+    required this.onUserTap,
+    required this.onBusinessTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(30),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: const Color(0xFFE7DDD7)),
+      ),
+      child: Column(
+        children: [
+          const Text(
+            'Ready to explore?',
+            style: TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF2A1019),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Join thousands of users discovering the best local businesses today.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Color(0xFF6B5B63),
+              height: 1.7,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 22),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _HeroActionButton(
+                label: 'Get Started — It\'s Free',
+                background: const Color(0xFFEFE76E),
+                textColor: const Color(0xFF2A1019),
+                onTap: onUserTap,
+              ),
+              const SizedBox(width: 14),
+              _HeroActionButton(
+                label: 'Register Your Business',
+                background: const Color(0xFF2A1019),
+                textColor: Colors.white,
+                onTap: onBusinessTap,
+              ),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+}
+
+class _FooterSection extends StatelessWidget {
+  const _FooterSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: const [
+        Divider(color: Color(0xFFE7DDD7)),
+        SizedBox(height: 16),
+        Text(
+          'PRICELY',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 2.5,
+            color: Color(0xFF2A1019),
+          ),
         ),
-        child: Text(label,
+        SizedBox(height: 8),
+        Text(
+          'Discover, book and grow with local services.',
+          style: TextStyle(
+            color: Color(0xFF7B6A72),
+            fontSize: 13,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SectionFrame extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final Widget child;
+
+  const _SectionFrame({
+    required this.title,
+    required this.subtitle,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 42,
+            fontWeight: FontWeight.w900,
+            color: Color(0xFF2B0D1A),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          subtitle,
+          style: const TextStyle(
+            color: Color(0xFF66555D),
+            fontSize: 16,
+            height: 1.7,
+          ),
+        ),
+        const SizedBox(height: 22),
+        child,
+      ],
+    );
+  }
+}
+
+class _SimpleCard extends StatelessWidget {
+  final String icon;
+  final String title;
+  final String body;
+
+  const _SimpleCard({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFFEADFD7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 28)),
+          const SizedBox(height: 16),
+          Text(
+            title,
             style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: _LandingTheme.blue,
-                letterSpacing: 1.5)),
-      );
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF2D0D19),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            body,
+            style: const TextStyle(
+              color: Color(0xFF6A6A6A),
+              height: 1.7,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryCard extends StatelessWidget {
+  final String icon;
+  final String title;
+  final String body;
+
+  const _CategoryCard({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFFEADFD7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 28)),
+          const SizedBox(height: 18),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF2D0D19),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            body,
+            style: const TextStyle(
+              color: Color(0xFF6A6A6A),
+              height: 1.6,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeatureBox extends StatelessWidget {
+  final String title;
+  final String body;
+
+  const _FeatureBox({
+    required this.title,
+    required this.body,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFEBE0D8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF2D0C19),
+              )),
+          const SizedBox(height: 8),
+          Text(
+            body,
+            style: const TextStyle(
+              color: Color(0xFF666666),
+              height: 1.6,
+              fontSize: 14,
+            ),
+          )
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniFeatureTile extends StatelessWidget {
+  final String label;
+
+  const _MiniFeatureTile({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F5F1),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFECE7DF)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Color(0xFF333333),
+          fontWeight: FontWeight.w700,
+          fontSize: 15,
+        ),
+      ),
+    );
+  }
+}
+
+class _DarkListTile extends StatelessWidget {
+  final String text;
+
+  const _DarkListTile({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+          fontSize: 15,
+        ),
+      ),
+    );
+  }
+}
+
+class _PreviewPill extends StatelessWidget {
+  const _PreviewPill();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: const Text(
+        'Live',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _PreviewItem extends StatelessWidget {
+  final String text;
+
+  const _PreviewItem({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Color(0xFFF3EDEF),
+          fontWeight: FontWeight.w700,
+          fontSize: 15,
+        ),
+      ),
+    );
+  }
+}
+
+class _AdCard extends StatelessWidget {
+  final String title;
+  final String price;
+  final Color background;
+  final Color textColor;
+  final Color borderColor;
+  final List<String> bullets;
+  final String buttonLabel;
+  final VoidCallback onTap;
+  final bool darkButton;
+
+  const _AdCard({
+    required this.title,
+    required this.price,
+    required this.background,
+    required this.textColor,
+    required this.borderColor,
+    required this.bullets,
+    required this.buttonLabel,
+    required this.onTap,
+    required this.darkButton,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w900,
+                color: textColor,
+              )),
+          const SizedBox(height: 12),
+          Text(price,
+              style: TextStyle(
+                fontSize: 38,
+                fontWeight: FontWeight.w900,
+                color: textColor,
+              )),
+          const SizedBox(height: 14),
+          ...bullets.map(
+            (e) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                '• $e',
+                style: TextStyle(
+                  color: textColor.withOpacity(0.82),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Material(
+            color:
+                darkButton ? const Color(0xFF2A1019) : const Color(0xFFEFE76E),
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                child: Center(
+                  child: Text(
+                    buttonLabel,
+                    style: TextStyle(
+                      color:
+                          darkButton ? Colors.white : const Color(0xFF2A1019),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LandingBackground extends StatelessWidget {
+  const _LandingBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned(
+          top: -120,
+          right: -120,
+          child: Container(
+            width: 340,
+            height: 340,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFFA5657E).withOpacity(0.08),
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: -160,
+          left: -120,
+          child: Container(
+            width: 380,
+            height: 380,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFFEFE76E).withOpacity(0.14),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }

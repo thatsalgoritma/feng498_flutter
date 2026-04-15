@@ -5,7 +5,9 @@ import 'owner_dashboard.dart';
 import 'business_login_page.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  final int initialTab;
+
+  const LoginPage({super.key, this.initialTab = 0});
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -39,7 +41,11 @@ class _LoginPageState extends State<LoginPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: widget.initialTab,
+    );
   }
 
   @override
